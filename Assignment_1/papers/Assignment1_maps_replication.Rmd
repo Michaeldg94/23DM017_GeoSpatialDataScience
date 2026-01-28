@@ -9,7 +9,6 @@ author:
 date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output:
   pdf_document:
-    latex_engine: xelatex
     toc: true
     toc_depth: 2
     number_sections: true
@@ -22,9 +21,6 @@ output:
     code_folding: show
 urlcolor: purple
 linkcolor: purple
-mainfont: "TeX Gyre Pagella"
-mathfont: "TeX Gyre Pagella Math"
-monofont: "Fira Code"
 header-includes:
   - \usepackage{float}
   - \usepackage{booktabs}
