@@ -18,7 +18,14 @@ Thumbs.db
 *.xlsx
 *.xls
 *.ods
+
+# Archives
 *.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
 
 # Serialized / binary data
 *.rds
