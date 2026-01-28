@@ -1,0 +1,64 @@
+ZIP file for South African rivers in drainage region ALL created on 2012-04-16 - 08:06:57
+by the Resource Quality Services directorate of the Department of Water Affairs.
+This is the release of 2012-04-16 - 08:06:57 and may still contain errors and inconsistencies.
+The developers would welcome any feedback and corrections.
+(Please include river reachcodes when reporting errors.)
+Contact address: SilberbauerM@dwa.gov.za
+
+-----------------
+The files are:
+WRI_500-GEO.HTM: metadata summary.
+WRI_500-GEO.JPG: subsidiary file required for correct display of metadata summary.
+SA.JPG: subsidiary file required for correct display of metadata summary.
+METADATA.XML: metadata generated in ESRI xml format.
+QAT4QAT8.TXT: lookup table for conversion from South African to USGS-style quaternary codes.
+(mainly of interest to ESA BASINS users).
+WRIALL500.AVL: legend file for ArcView 3.x - line width proportional to Strahler order.
+-----------------
+WRIALL500.PRJ: ESRI projection definition file.
+WRIALL500.SHP.XML: ESRI metadata file.
+WRIALL500.SHP, WRIALL500.SHX, WRIALL500.DBF: ESRI shape file components.
+The shape file contains the South African 1:500 000 river coverage
+for drainage region(s) ALL, in the Cape Datum, geographical coordinates.
+(All editing occurred in Albers Equal Area projection for exact tolerance setting.)
+(The data is being kept in its original datum until a standard datum-shift to
+Hartebeesthoek94 or WGS84 is agreed upon, to avoid inadvertent data corruption.)
+The fields may include:
+
+.  ---------------
+(1) INTERNAL FIELDS (ignore)
+.  ===============
+SHAPE, FNODE_,TNODE_, LPOLY_, RPOLY_, LENGTH, TMPRIV_, TMPRIV_ID.
+
+(2) ATTRIBUTES (sequence may differ)
+.   ==========
+NAME: generally, the name assigned to the reach on a topographical map
+- sometimes the correctness is uncertain.
+- ALIAS: alternate name or names for the reach, separated by \.
+- RIVN_ROOT: For multilingual annotation purposes (prototype): the root of the river name.
+- RIVN_SUFX: The qualifier of the river name, e.g. river, spruit, loop.
+CLASS: unreliable indicator of seasonality of river flow. The classes and allocation require review:
+- Dry=dry river, Perennial=perennial river, Non=non-perennial river,
+Unknown=not present in original coverage or not transferred from source map.
+PRIMARY: primary drainage region where the reach occurs.
+- a lower-case letter indicates a pseudo drainage region outside South Africa.
+ORDER: Strahler order, starting from source=1.
+END: S=Source, N=iNtermediate, M=Mouth, E=Endorheic.
+REACHCODE: 10-character reach code made up as follows:
+- 1 to 4: quaternary drainage region in which MOST of the river falls.
+(Note that USA programs such as BASINS expect eight numerical digits.
+The qat4qat8.txt lookup table contains the appropriate DWA to USA conversions.)
+- 5 to 6: arbitrary sequence number of the reaches within a quaternary drainage region.
+- 7 to 10: four zeroes (0000) in the 1:500 000 coverage, intended for later use at more detailed scale.
+SORTER: internal sorting field - always increases downstream in river network
+LENGTH_KM:  length of reach in kilometres (not to be confused with the meaningless LENGTH field).
+RivEX fields:  (see http://www.rivex.co.uk/)
+- SEGMENT : Channel identifier.
+- STRAHLER:  Horton-Strahler order.
+- SHREVE:  Shreve order.
+- US_ACCUM: Accumulated upstream metres at the lower node of each arc.
+- LINK_TYPE : same idea as the "END" field, above. E=Exterior, I=Interior, O=Outlet.
+- CATCHID:  Automatically generated ID for each end node (i.e. when END='E' or 'M').
+- DIST2MTH : Distance to the mouth in metres from the upper node of each arc.
+- MAINCHAN : Main channel identifier.
+- CATCHID : drainage region identifier.

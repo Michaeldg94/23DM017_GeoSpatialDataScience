@@ -1,0 +1,32 @@
+# Data files
+*.zip
+*.csv
+*.dta
+*.xlsx
+*.xls
+
+# Shapefiles
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+
+# R
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj.user/
+
+# Knitr cache
+*_cache/
+*_files/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keep empty folders
+!.keep
+Assignment_1/papers/Mettetal_2019/data/elevation/
+*.tif
