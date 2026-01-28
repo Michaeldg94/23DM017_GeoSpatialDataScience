@@ -12,7 +12,6 @@ output:
     toc: true
     toc_depth: 2
     number_sections: true
-    dev: cairo_pdf
     fig_caption: true
   html_document:
     toc: true
@@ -30,17 +29,20 @@ header-includes:
 ---
 
 ```{r setup, include=FALSE}
+library(knitr)
+library(kableExtra)
+library(ragg)
+
 knitr::opts_chunk$set(
   echo = TRUE,
   message = FALSE,
   warning = FALSE,
   dpi = 300,
   fig.align = "center",
-  out.width = "100%"
+  out.width = "100%",
+  dev = "ragg_png" 
 )
 
-library(knitr)
-library(kableExtra)
 ```
 
 \newpage
@@ -64,7 +66,7 @@ We gathered all layers from public sources:
 
 ## Why our map differs
 
-We could not fully replicate the original for a few reasons. First, the paper mentions an "ERSS-based proxy surface" for population density but does not explain how they built it, so we used kernel density estimation instead, which gives a similar visual effect. Second, the original appears to use an Esri terrain basemap, which we do not have access to—we used administrative boundaries only. Third, we do not know the exact vintage of the road network they used, so we relied on OpenStreetMap data from HDX. Finally, we omitted geographic labels (Somalia, Djibouti, etc.) to keep the focus on Ethiopia.
+We could not fully replicate the original for a two reasons. First, we do not know the exact vintage of the road network they used, so we relied on OpenStreetMap data from HDX. Also, we omitted geographic labels (Somalia, Djibouti, etc.) to keep the focus on Ethiopia.
 
 ---
 
@@ -78,18 +80,14 @@ pacman::p_load(
  ggplot2, ggnewscale, stars, MASS,
  knitr, kableExtra
 )
-```
 
-```{r define-paths-ethiopia}
 zip_w1 <- "./data/Fried_Lagakos_2021/ETH_2011_ERSS_v02_M_CSV.zip"
 zip_w2 <- "./data/Fried_Lagakos_2021/ETH_2013_ESS_v03_M_STATA.zip"
 zip_admin <- "./data/Fried_Lagakos_2021/Ethiopia_AdminBoundaries-shp.zip"
 zip_roads <- "./data/Fried_Lagakos_2021/hotosm_eth_roads_lines_shp.zip"
 zip_grid <- "./data/Fried_Lagakos_2021/ethiopia-electricity-transmission-network.zip"
 zip_plants <- "./data/Fried_Lagakos_2021/eth_powerplants.zip"
-```
 
-```{r extract-files-ethiopia}
 tmp_w1 <- file.path(tempdir(), "w1")
 tmp_w2 <- file.path(tempdir(), "w2")
 tmp_admin <- file.path(tempdir(), "admin")
@@ -109,9 +107,7 @@ unzip(zip_admin, exdir = tmp_admin)
 unzip(zip_roads, exdir = tmp_roads)
 unzip(zip_grid, exdir = tmp_grid)
 unzip(zip_plants, exdir = tmp_plants)
-```
 
-```{r locate-files-ethiopia}
 w1_csv <- file.path(
  tmp_w1,
  "ETH_2011_ERSS_v02_M_CSV",
@@ -123,25 +119,20 @@ find_shp <- function(dir) {
  list.files(dir, pattern = "\\.shp$", full.names = TRUE, recursive = TRUE)[1]
 }
 
+```
+
+```{r read-spatial-ethiopia}
 admin_shp <- find_shp(tmp_admin)
 roads_shp <- find_shp(tmp_roads)
 grid_shp <- find_shp(tmp_grid)
 plants_shp <- find_shp(tmp_plants)
-```
 
-```{r read-spatial-ethiopia}
 admin <- st_read(admin_shp, quiet = TRUE)
 roads <- st_read(roads_shp, quiet = TRUE)
 grid <- st_read(grid_shp, quiet = TRUE)
 plants <- st_read(plants_shp, quiet = TRUE)
-```
 
----
-
-## Processing the survey data
-
-```{r read-wave1-ethiopia}
-w1 <- read_csv(w1_csv, show_col_types = FALSE) |>
+w1 <- read_csv(w1_csv, show_col_types = FALSE) %>%
  mutate(
    lat_dd_mod = as.numeric(LAT_DD_MOD),
    lon_dd_mod = as.numeric(LON_DD_MOD),
@@ -149,10 +140,8 @@ w1 <- read_csv(w1_csv, show_col_types = FALSE) |>
    qa_type = as.integer(qa_type),
    ea_id11 = str_pad(ea_id, width = 11, side = "left", pad = "0")
  )
-```
 
-```{r read-wave2-ethiopia}
-w2 <- read_dta(w2_dta) |>
+w2 <- read_dta(w2_dta) %>%
  mutate(
    lat_dd_mod = as.numeric(lat_dd_mod),
    lon_dd_mod = as.numeric(lon_dd_mod),
@@ -160,9 +149,13 @@ w2 <- read_dta(w2_dta) |>
  )
 ```
 
+## Processing the survey data
+
 ```{r aggregate-ea-ethiopia}
-w1_ea <- w1 |>
- group_by(ea_id11) |>
+# Grouping by all the families that live in the same Enumeration Area, as in the paper. 
+# Creating the coordenades of each area, it's mean population.
+w1_ea <- w1 %>%
+ group_by(ea_id11) %>%
  summarise(
    lat = mean(lat_dd_mod, na.rm = TRUE),
    lon = mean(lon_dd_mod, na.rm = TRUE),
@@ -171,8 +164,10 @@ w1_ea <- w1 |>
    .groups = "drop"
  )
 
-w2_ea <- w2 |>
- group_by(ea_id11) |>
+# Groupign by all the families that live in the same Enumeration Area, as in the paper, 
+# and creating the coordenades of each area.
+w2_ea <- w2 %>%
+ group_by(ea_id11) %>%
  summarise(
    lat = mean(lat_dd_mod, na.rm = TRUE),
    lon = mean(lon_dd_mod, na.rm = TRUE),
@@ -181,15 +176,16 @@ w2_ea <- w2 |>
 
 cat("Wave 1:", nrow(w1_ea), "villages\n")
 cat("Wave 2:", nrow(w2_ea), "villages\n")
-```
 
-```{r construct-panel-ethiopia}
+# Restricting only to the villages in both times, as the paper does. That way you have 2 
+# periods of data for each village.
 panel_ids <- intersect(w1_ea$ea_id11, w2_ea$ea_id11)
-panel <- w1_ea |> filter(ea_id11 %in% panel_ids)
+panel <- w1_ea %>% filter(ea_id11 %in% panel_ids)
 cat("Panel villages:", length(panel_ids), "\n")
 ```
 
 ```{r distance-addis-ethiopia}
+# Define a function to compute distances in the earth as we will need it.
 haversine_km <- function(lon1, lat1, lon2, lat2) {
  r <- 6371
  rad <- pi / 180
@@ -199,187 +195,121 @@ haversine_km <- function(lon1, lat1, lon2, lat2) {
  2 * r * asin(sqrt(a))
 }
 
-panel <- panel |>
+# Add the distance from Addis Abeba as a column to the data
+panel <- panel %>%
  mutate(dist_addis_km = haversine_km(lon, lat, 38.74, 9.03))
-```
 
-```{r apply-restrictions-ethiopia}
-villages <- panel |>
+# Keeping only the villages included in the paper
+villages <- panel %>%
  filter(qa_type == 1, dist_addis_km >= 25, pop2011 <= 10000)
 
 cat("Final sample:", nrow(villages), "villages\n")
 ```
 
----
-
-## Creating the population density surface
-
 ```{r project-spatial-ethiopia}
-crs_proj <- 3857
+# Unifying projections
+admin_proj <- st_transform(admin, 3857)
+panel_sf <- st_as_sf(panel, coords = c("lon", "lat"), crs = 4326) %>% 
+  st_transform(3857)
 
-vill_sf <- villages |>
- st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
- st_transform(crs_proj)
+vill_sf <- villages %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) %>%
+  st_transform(3857)
 
-ea_sf <- w1_ea |>
- st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
- st_transform(crs_proj)
-
-admin_proj <- st_transform(admin, crs_proj)
-roads_proj <- st_transform(roads, crs_proj)
-grid_proj <- st_transform(grid, crs_proj)
-
+roads_proj <- st_transform(roads, 3857)
+grid_proj <- st_transform(grid, 3857)
 st_crs(plants) <- 4326
-plants_proj <- st_transform(plants, crs_proj)
+plants_proj <- st_transform(plants, 3857)
 ```
 
 ```{r compute-kde-ethiopia}
-xy <- st_coordinates(ea_sf)
-weights <- ea_sf$pop2011
-weights[is.na(weights)] <- 0
-bbox <- st_bbox(admin_proj)
+# Computing population denisty by region
+points_in_regions <- st_join(panel_sf, admin_proj)
 
-weights_scaled <- pmax(1, round(scales::rescale(
- weights,
- to = c(1, 10),
- from = quantile(weights, c(0.05, 0.95), na.rm = TRUE)
-)))
-xy_rep <- xy[rep(seq_len(nrow(xy)), weights_scaled), ]
-
-kde <- kde2d(
- x = xy_rep[, 1],
- y = xy_rep[, 2],
- n = c(360, 280),
- lims = c(bbox["xmin"], bbox["xmax"], bbox["ymin"], bbox["ymax"])
-)
+admin_density <- points_in_regions %>%
+  st_drop_geometry() %>%
+  group_by(REGIONNAME) %>% 
+  summarise(pop_total = sum(pop2011, na.rm = TRUE)) %>%
+  left_join(admin_proj, "REGIONNAME") %>%
+  st_as_sf() %>%
+  mutate(
+    area_km2 = as.numeric(st_area(.)) / 1e6,
+    densitat = pop_total / area_km2
+  )
 ```
 
-```{r convert-kde-ethiopia}
-dens_stars <- st_as_stars(
- list(density = kde$z),
- dimensions = st_dimensions(x = kde$x, y = kde$y)
-)
-st_crs(dens_stars) <- crs_proj
+```{r prepare-roads}
+# Preparing the roads (filtering them to only keep major roads as in the paper)
+major_road_classes <- c("motorway", "trunk", "primary")
+roads_filtered <- roads_proj %>%
+  filter(highway %in% major_road_classes)
 
-dens_df <- as.data.frame(dens_stars, xy = TRUE)
-names(dens_df) <- c("x", "y", "density")
 ```
-
----
-
-## Preparing the roads
-
-```{r classify-roads-ethiopia}
-road_classes <- c("motorway", "trunk", "primary", "secondary", "tertiary")
-
-roads_filtered <- roads_proj |>
- filter(highway %in% road_classes) |>
- mutate(
-   road_type = factor(highway, levels = road_classes),
-   line_width = case_when(
-     highway %in% c("motorway", "trunk") ~ 1.0,
-     highway == "primary" ~ 0.7,
-     highway == "secondary" ~ 0.5,
-     highway == "tertiary" ~ 0.3
-   )
- )
-```
-
----
 
 ## Building the map
 
 ```{r figure4, fig.width=10, fig.height=9, fig.cap="Our replication of Figure 4 from Fried \\& Lagakos (2021)."}
 
-ethiopia_boundary <- st_union(admin_proj)
-dens_pts <- st_as_sf(dens_df, coords = c("x", "y"), crs = crs_proj)
-inside <- st_intersects(dens_pts, ethiopia_boundary, sparse = FALSE)[, 1]
-dens_df <- dens_df[inside, ]
-
-grid_leg <- grid_proj |> mutate(layer = "High-Voltage Grid")
-plants_leg <- plants_proj |> mutate(layer = "Power Plants")
-vill_leg <- vill_sf |> mutate(layer = "ERSS Sample Villages")
+grid_leg <- grid_proj %>% mutate(layer = "High-Voltage Grid")
+plants_leg <- plants_proj %>% mutate(layer = "Power Plants")
+vill_leg <- vill_sf %>% mutate(layer = "ERSS Sample Villages")
 
 ggplot() +
- geom_raster(data = dens_df, aes(x, y, fill = density), alpha = 0.85) +
- scale_fill_gradient(
-   low = "#d4e6f1", high = "#1a5276",
-   name = "Population\nDensity",
-   guide = guide_colorbar(
-     title.position = "top", title.hjust = 0.5,
-     barwidth = 1.2, barheight = 6,
-     frame.colour = "grey30", ticks.colour = "grey30",
-     order = 1
-   ),
-   labels = c("Low", "", "High"),
-   breaks = function(x) c(min(x), mean(x), max(x))
- ) +
- ggnewscale::new_scale_fill() +
- geom_sf(data = admin_proj, fill = NA, color = "white", linewidth = 0.3) +
- geom_sf(
-   data = roads_filtered,
-   aes(linewidth = line_width),
-   color = "grey20", alpha = 0.6
- ) +
- scale_linewidth_identity() +
- geom_sf(data = grid_leg, aes(color = layer), linewidth = 0.6, alpha = 0.9) +
- scale_color_manual(
-   name = NULL,
-   values = c("High-Voltage Grid" = "#c0392b"),
-   guide = guide_legend(order = 2, override.aes = list(linewidth = 1))
- ) +
- geom_sf(
-   data = plants_leg,
-   aes(shape = layer),
-   color = "#d35400",
-   fill = "#f39c12",
-   size = 3.5,
-   stroke = 0.5
- ) +
- scale_shape_manual(
-   name = NULL,
-   values = c("Power Plants" = 23),
-   guide = guide_legend(order = 3, override.aes = list(size = 4))
- ) +
- ggnewscale::new_scale("shape") +
- geom_sf(
-   data = vill_leg, aes(shape = layer),
-   fill = "white", color = "black", size = 2.2, stroke = 0.5
- ) +
- scale_shape_manual(
-   name = NULL,
-   values = c("ERSS Sample Villages" = 21),
-   guide = guide_legend(order = 4, override.aes = list(size = 4))
- ) +
- coord_sf(
-   crs = crs_proj, datum = NA,
-   xlim = bbox[c("xmin", "xmax")],
-   ylim = bbox[c("ymin", "ymax")]
- ) +
- labs(
-   title = "Figure 4: Ethiopian Population Density and ERSS Sample Villages",
-   caption = paste(
-     "Data: ERSS (World Bank), Roads (OpenStreetMap/HDX), Grid & Power Plants (energydata.info)",
-     "Road thickness: motorway/trunk > primary > secondary > tertiary",
-     sep = "\n"
-   )
- ) +
- theme_void(base_size = 11) +
- theme(
-   plot.title = element_text(
-     size = 14, face = "bold", hjust = 0.5, margin = margin(b = 5)
-   ),
-   plot.caption = element_text(
-     size = 8, color = "grey40", hjust = 0, margin = margin(t = 10)
-   ),
-   legend.position = "right",
-   legend.box = "vertical",
-   legend.title = element_text(size = 10, face = "bold"),
-   legend.text = element_text(size = 9),
-   legend.spacing.y = unit(0.3, "cm"),
-   legend.margin = margin(l = 10),
-   plot.margin = margin(15, 15, 15, 15)
- )
+  geom_sf(data = admin_density, aes(fill = densitat), 
+          color = "grey30", 
+          lwd = 0.15, 
+          alpha = 0.9) +  
+  scale_fill_gradient(
+    low = "#CCEEFF", high = "#1a5276", 
+    name = "Population\nDensity",
+    trans = "pseudo_log", 
+    guide = guide_colorbar(
+      title.position = "top", title.hjust = 0.5,
+      barwidth = 1.2, barheight = 6,
+      frame.colour = "grey30", ticks.colour = "grey30",
+      order = 1
+    ),
+    labels = c("Low", "", "High"),
+    breaks = function(x) c(min(x, na.rm=T), mean(x, na.rm=T), max(x, na.rm=T))
+  ) +
+  
+  new_scale_color() +
+  geom_sf(data = roads_filtered, aes(color = "Major Roads"), linewidth = 0.7) +
+  scale_color_manual(values = c("Major Roads" = "black"), name = NULL) +
+  
+  new_scale_color() +
+  geom_sf(data = grid_proj, aes(color = "High-Voltage Grid"), linewidth = 0.4) +
+  scale_color_manual(values = c("High-Voltage Grid" = "#e41a1c"), name = NULL) +
+  
+  new_scale_color() +
+  geom_sf(data = vill_sf, aes(color = "ERSS Sample Villages"), size = 0.7) +
+  scale_color_manual(values = c("ERSS Sample Villages" = "white"), name = NULL) +
+  
+  new_scale_fill() + 
+  geom_sf(data = vill_sf, 
+          aes(fill = "ERSS Sample Villages"), 
+          shape = 21,    
+          color = "black", 
+          size = 1,   
+          stroke = 0.2) + 
+  scale_fill_manual(values = c("ERSS Sample Villages" = "white"), name = NULL) +
+  
+  new_scale_color() +
+  geom_sf(data = plants_proj, aes(color = "Power Plants"), size = 1,shape = 15) +
+  scale_color_manual(values = c("Power Plants" = "orange"), name = NULL) +
+  
+  labs(
+    title = "Population Density and Infrastructure in Ethiopia",
+    subtitle = "ERSS Sample Villages, Major Roads, and Grid"
+  ) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+    plot.subtitle = element_text(hjust = 0.5, size = 11),
+    plot.background = element_rect(fill = "white", color = NA),
+    legend.title = element_text(size = 10, face = "bold")
+  )
 ```
 
 ---
@@ -420,8 +350,6 @@ pacman::p_load(
 )
 ```
 
----
-
 ## Loading the Data
 
 ```{r load-spatial-brazil}
@@ -442,43 +370,39 @@ brazil_all <- st_read(
   layer = "brazil",
   quiet = TRUE
 )
-```
 
-```{r simplify-geometries-brazil}
 brazil <- ms_simplify(brazil, keep = 0.05, keep_shapes = TRUE)
 west <- ms_simplify(west, keep = 0.05, keep_shapes = TRUE)
 brazil_all <- ms_simplify(brazil_all, keep = 0.05, keep_shapes = TRUE)
-```
 
-```{r load-tabular-brazil}
 table_path <- "./data/Pellegrina_Sotelo_2025/output/fact_maps.csv"
 
-data_fact <- read.table(
+data_fact <- read_csv(
   table_path,
-  sep = ",",
-  header = FALSE,
-  na.strings = "NaN",
-  col.names = c("meso_code", "pop1950", "pop1980", "pop2010")
-) |>
+  col_names = c("meso_code", "pop1950", "pop1980", "pop2010"),
+  na = "NaN",
+  show_col_types = FALSE
+) %>%
   mutate(meso_code = as.character(meso_code))
 ```
 
----
-
-## Merging and plotting
+## Processing the data
 
 ```{r merge-data-brazil}
-map_df <- brazil |>
+# Adding new columns by joining brazil with data_fact by the code of the meso-region.
+map_df <- brazil %>%
   left_join(data_fact, by = c("mesocodefo" = "meso_code"))
 
 outline <- st_union(brazil_all)
 west_outline <- st_union(west)
-```
-
-```{r generate-maps-brazil, fig.width=8, fig.height=6, fig.cap="Population share maps for Brazil's mesoregions in 1950, 1980, and 2010. The red outline indicates the 'West' region."}
 
 years <- c("1950", "1980", "2010")
 breaks <- c(0, 0.2, 0.4, 0.6, 1, 12)
+```
+
+## Plotting the data
+
+```{r generate-maps-brazil, fig.width=8, fig.height=6, fig.cap="Population share maps for Brazil's mesoregions in 1950, 1980, and 2010. The red outline indicates the 'West' region."}
 
 for (year in years) {
   
@@ -546,7 +470,7 @@ This includes:
 
 ## Why our map differs
 
-We used the exact same shapefiles from the replication package, so the geographic content is identical. We made a few aesthetic changes: we used colors (amber for MST, steel-blue for non-radial, dark charcoal for radial) instead of all-grey tones, added a halo effect around Brasília, and used `ggrepel` for cleaner labels. These changes make it easier to distinguish the three network types at a glance.
+We used the exact same shapefiles from the replication package, so the geographic content is identical. We only made a few aesthetic changes: we used colors (amber for MST, steel-blue for non-radial, dark charcoal for radial) instead of all-grey tones. 
 
 ---
 
@@ -560,13 +484,10 @@ pacman::p_load(
   rmapshaper,
   sf
 )
-```
 
-```{r define-paths-mo}
 gis_path <- "./data/Morten_Oliveira_2024/GIS_data"
 ```
 
----
 
 ## Loading the Data
 
@@ -577,9 +498,7 @@ states <- st_read(
 )
 
 states_simple <- ms_simplify(states, keep = 0.01, keep_shapes = TRUE)
-```
 
-```{r load-highways-mo}
 all_highways <- st_read(
   file.path(gis_path, "roads/2000/highways_2000_prj.shp"),
   quiet = TRUE
@@ -587,40 +506,37 @@ all_highways <- st_read(
 
 all_highways_simple <- ms_simplify(all_highways, keep = 0.01, keep_shapes = TRUE)
 
-radial_highways <- all_highways_simple |>
-  filter(dm_anlys_p == 1 & dm_radial == 1)
-
-nonradial_highways <- all_highways_simple |>
-  filter(dm_anlys_p == 1 & dm_radial == 0)
-```
-
-```{r load-mst-mo}
 mst_pie <- st_read(
   file.path(gis_path, "mst/mst_pie_prj.shp"),
   quiet = TRUE
 )
 
 mst_pie_simple <- ms_simplify(mst_pie, keep = 0.01, keep_shapes = TRUE)
-```
 
-```{r load-cities-mo}
 capital_cities <- st_read(
   file.path(gis_path, "cities/brazil_capital_cities_prj.shp"),
   quiet = TRUE
 )
 
-cities_xy <- capital_cities |>
-  cbind(st_coordinates(capital_cities)) |>
-  rename(lng = X, lat = Y)
-
-brasilia <- cities_xy |>
-  filter(grepl("Bras", CITY_NAME, ignore.case = TRUE))
-
-other_cities <- cities_xy |>
-  filter(!grepl("Bras", CITY_NAME, ignore.case = TRUE))
 ```
 
----
+## Filtering the Data
+
+```{r load-highways-mo}
+
+# Find the radial highways
+radial_highways <- all_highways_simple %>%
+  filter(dm_anlys_p == 1 & dm_radial == 1)
+
+# Find the nonradial highways
+nonradial_highways <- all_highways_simple %>%
+  filter(dm_anlys_p == 1 & dm_radial == 0)
+
+# Keep only capital cities
+cities_xy <- capital_cities %>%
+  cbind(st_coordinates(capital_cities)) %>%
+  rename(lng = X, lat = Y)
+```
 
 ## Building the Map
 
@@ -661,26 +577,13 @@ fig_1 <- ggplot() +
     show.legend = "line"
   ) +
   geom_point(
-    data = brasilia,
-    aes(x = lng, y = lat),
-    size = 7,
-    color = "#D4A03E",
-    alpha = 0.35
-  ) +
-  geom_point(
     data = cities_xy,
     aes(x = lng, y = lat),
     size = 2.0,
     color = "#2C2C2C"
   ) +
-  geom_point(
-    data = brasilia,
-    aes(x = lng, y = lat),
-    size = 4.0,
-    color = "#2C2C2C"
-  ) +
   geom_text_repel(
-    data = other_cities,
+    data = cities_xy,
     aes(x = lng, y = lat, label = CITY_NAME),
     size = 2.7,
     color = "#3A3A3A",
@@ -689,16 +592,6 @@ fig_1 <- ggplot() +
     box.padding = 0.35,
     point.padding = 0.25,
     max.overlaps = 30,
-    seed = 42
-  ) +
-  geom_text_repel(
-    data = brasilia,
-    aes(x = lng, y = lat, label = CITY_NAME),
-    size = 3.5,
-    fontface = "bold",
-    color = "#1A1A1A",
-    nudge_y = 1.8,
-    segment.color = "#999999",
     seed = 42
   ) +
   scale_color_manual(
@@ -759,7 +652,7 @@ We assembled layers from several public sources:
 
 ## Why our map differs
 
-The main difference is that we could not access the exact district boundaries and river gradient calculations the author used. We computed river gradient ourselves from SRTM elevation data, using a 1.5 km buffer around rivers to extract slope values. Our sextile classification may differ slightly from the original due to differences in the underlying DEM and the exact method used to aggregate slopes to district level. However, the overall pattern—steeper rivers in the west, gentler rivers and more dams in the east—matches the original figure well.
+The main difference is that, to reproduce the way the author computes river gradients, we had to lower the resolution of the DEM and create a 1.5 km buffer around the rivers. Additionally, our sextile classification may differ slightly from the original due to these adjustments. However, the overall pattern—steeper rivers in the west, gentler rivers and more dams in the east—matches the original figure well.
 
 ---
 
@@ -774,20 +667,21 @@ pacman::p_load(
   exactextractr,
   readxl
 )
-```
 
-```{r define-paths-mettetal}
 dir_data <- "./data/Mettetal_2019/"
 dir.create(dir_data, showWarnings = FALSE, recursive = TRUE)
 ```
 
----
-
 ## Loading the Data
 
 ```{r load-dem-mettetal}
+# --- DEM of South Africa --- #
+
+# We download South Africa's border
 sa_boundary <- geodata::gadm(country = "ZAF", level = 0, path = dir_data)
 
+# Then we downloads 90m (1 pixel 90mx90m) global elevation, and we clip the data to 
+# South Africa's borders to remove unnecessary areas.
 dem_raw <- geodata::elevation_global(res = 0.5, country = "ZAF", path = dir_data)
 dem <- terra::crop(dem_raw, sa_boundary, mask = TRUE)
 
@@ -796,35 +690,40 @@ gc()
 ```
 
 ```{r load-spatial-mettetal}
+# --- Load the other data --- #
+
 sf_districts <- st_read(
   file.path(dir_data, "Magisterialdistricts2005"),
   "District municipalities 2005"
-) |>
+) %>%
   st_make_valid()
 
-sf_dams <- st_read(file.path(dir_data, "doc.kml")) |>
-  st_make_valid() |>
+sf_dams <- st_read(file.path(dir_data, "doc.kml")) %>%
+  st_make_valid() %>%
   st_set_crs(4326)
 
-sf_rivers <- st_read(file.path(dir_data, "All"), "wriall500") |>
+sf_rivers <- st_read(file.path(dir_data, "All"), "wriall500") %>%
   st_make_valid()
 ```
 
 ```{r load-registry-mettetal}
+# --- Excel with dams information --- #
+
 dams_info <- read_excel(file.path(dir_data, "List of Registered Dams Jul2025.xlsx"))
 
-dams_irrigation <- dams_info |>
-  distinct() |>
-  filter(str_detect(Purpose, regex("IRRIGATION", ignore_case = TRUE))) |>
+# Clean the file because originally it has some duplicated rows, and filter it as in the 
+# paper (only consider dam with the purpose of irrigation)
+dams_irrigation <- dams_info %>%
+  distinct() %>%
+  filter(str_detect(Purpose, regex("IRRIGATION", ignore_case = TRUE))) %>%
   distinct(`No of dam`, .keep_all = TRUE)
 
-sf_dams_filtered <- sf_dams |>
+# Finally we keep only the dams that satisfy the conditions that we want
+sf_dams_filtered <- sf_dams %>%
   inner_join(dams_irrigation, by = c("Name" = "Name of dam"))
 ```
 
----
-
-## Computing River Gradient
+## Align the coordenates
 
 ```{r align-crs-mettetal}
 if (is.na(st_crs(sf_districts))) {
@@ -844,8 +743,15 @@ districts_vect <- project(vect(sf_districts), dem)
 dams_vect <- project(vect(sf_dams_filtered), dem)
 ```
 
+## Carving elevation along rivers
+
 ```{r extract-river-dem-mettetal}
+# First we create a buffer of 1,5km, so that we ensure the river paths are wide enough to 
+# overlap with the elevation pixels.
 rivers_buf <- buffer(rivers_vect, width = 1500)
+
+# Then, we create a digital stencil of the rivers and use it to erase all land data except 
+# the river channels.
 river_mask <- rasterize(rivers_buf, dem, field = 1)
 dem_rivers_only <- mask(dem, river_mask)
 
@@ -853,22 +759,24 @@ rm(rivers_buf, river_mask, rivers_vect)
 gc()
 ```
 
-```{r compute-slope-mettetal}
-slope_deg <- terrain(dem_rivers_only, "slope", unit = "degrees")
-slope_pct <- tan(slope_deg * pi / 180) * 100
-```
+## Compute the slope and aggregate it by district
 
 ```{r aggregate-slope-mettetal}
+# Compute the slope in degrees
+slope_deg <- terrain(dem_rivers_only, "slope", unit = "degrees")
+
+# Converts the degrees into a percentage gradient as in the paper.
+slope_pct <- tan(slope_deg * pi / 180) * 100
+
+# Calculate the fraction of river pixels that are steep (greater than 6% slope)
 steep_rivers <- slope_pct > 6
 sf_districts$fraction_steep <- exact_extract(steep_rivers, sf_districts, "mean")
 ```
 
----
-
 ## Classifying Districts
 
 ```{r classify-districts-mettetal}
-sf_districts_clean <- sf_districts |>
+sf_districts_clean <- sf_districts %>%
   filter(!is.na(fraction_steep))
 
 sf_districts_clean$fraction_jitter <- jitter(
@@ -885,6 +793,7 @@ labels_percentile <- paste0(
   tail(round(breaks, 4), -1)
 )
 
+# Add a column to districts simple feature with the assigned category of river gradient
 sf_districts_clean <- sf_districts_clean |>
   mutate(
     slope_percentile = cut(
@@ -895,8 +804,6 @@ sf_districts_clean <- sf_districts_clean |>
     )
   )
 ```
-
----
 
 ## Building the Map
 
@@ -999,16 +906,12 @@ vehicular_classes <- c(
 
 linewidths <- c(0.8, 0.6, 0.4, 0.2, 0.1)
 legend_widths <- c(1.2, 0.9, 0.6, 0.3, 0.15)
-```
 
----
-
-## Loading the Data
-
-```{r load-boundary-vietnam}
 vn_border <- gadm(country = "VNM", level = 0, path = tempdir()) |>
   st_as_sf()
 ```
+
+## Map of 2015
 
 ```{r load-roads-2015-vietnam}
 r15_raw <- st_read(
@@ -1017,8 +920,9 @@ r15_raw <- st_read(
   quiet = TRUE
 )
 
-r15 <- r15_raw |>
-  filter(type %in% vehicular_classes) |>
+# Filter only for vehicular roads, excluding footways, steps, and paths
+r15 <- r15_raw %>%
+  filter(type %in% vehicular_classes) %>%
   mutate(
     road_type = case_when(
       type %in% c("motorway", "motorway_link") ~ "Freeway",
@@ -1041,6 +945,8 @@ r15 <- r15_raw |>
   )
 ```
 
+## Map of 2026
+
 ```{r load-roads-2026-vietnam}
 r26_raw <- st_read(
   "./data/Balboni_2021/vietnam-260126-free/",
@@ -1048,8 +954,9 @@ r26_raw <- st_read(
   quiet = TRUE
 )
 
-r26 <- r26_raw |>
-  filter(fclass %in% vehicular_classes) |>
+# Filter only for the roads that we want to keep
+r26 <- r26_raw %>%
+  filter(fclass %in% vehicular_classes) %>%
   mutate(
     road_type = case_when(
       fclass %in% c("motorway", "motorway_link") ~ "Freeway",
@@ -1071,8 +978,6 @@ r26 <- r26_raw |>
     road_type = droplevels(road_type)
   )
 ```
-
----
 
 ## Building the Maps
 
