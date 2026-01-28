@@ -1,24 +1,10 @@
-# Data files
-*.zip
-*.csv
-*.dta
-*.xlsx
-*.xls
-
-# Shapefiles
-*.shp
-*.shx
-*.dbf
-*.prj
-*.cpg
-
 # R
 .Rhistory
 .RData
 .Ruserdata
 *.Rproj.user/
 
-# Knitr cache
+# Knitr / R Markdown
 *_cache/
 *_files/
 
@@ -26,7 +12,61 @@
 .DS_Store
 Thumbs.db
 
+# Tabular data
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.ods
+*.zip
+
+# Serialized / binary data
+*.rds
+*.Rds
+*.Rda
+*.RData
+*.sav
+*.dta
+*.pkl
+*.pickle
+*.feather
+*.parquet
+
+# Spatial / GIS data
+*.shp
+*.shx
+*.dbf
+*.prj
+*.sbn
+*.sbx
+*.cpg
+*.qix
+*.gpkg
+*.geojson
+*.kml
+*.kmz
+
+# Raster data
+*.tif
+*.tiff
+*.img
+*.asc
+*.grd
+*.nc
+
+# Databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs / temp
+*.log
+*.tmp
+*.bak
+
 # Keep empty folders
 !.keep
+
+# Explicit exceptions (tracked directories)
 Assignment_1/papers/Mettetal_2019/data/elevation/
-*.tif
+
