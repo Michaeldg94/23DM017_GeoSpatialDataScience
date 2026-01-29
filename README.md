@@ -9,7 +9,7 @@ This repository contains coursework for the **Geospatial Data Science and Econom
   We also include the Assignment 1 deliverables (the `.Rmd` source and the compiled `PDF`) in this folder.
 
 - `Assignment_2/`  
-  Contains code and deliverables for Assignment 2 (analysis, figures, and final write-up).
+  Contains the `.Rmd` and `.pdf` merge Natural Earth world with point population + ports/airports, produce the required map + histograms, and (Porteous 2019) compute distance metrics and scatter plots with the paper’s Africa market/price data.
 
 - `Assignment_3/`  
   Contains code and deliverables for Assignment 3 (analysis, figures, and final write-up).
