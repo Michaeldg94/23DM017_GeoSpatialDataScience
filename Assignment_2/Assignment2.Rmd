@@ -1,0 +1,365 @@
+---
+title: "Assignment 2"
+author:
+  - "Sebastian Dong Uk Paik Sohn"
+  - "Michael Duarte Gonçalves"
+  - "Gal·la Gelpí Buxadé"
+  - "Maria Victoria Suriel Nuñez"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    code_folding: show
+
+urlcolor: purple
+linkcolor: purple
+header-includes:
+  - \usepackage{float}
+  - \usepackage{booktabs}
+  - \floatplacement{figure}{H}
+  - \let\oldtoc\tableofcontents
+  - \renewcommand{\tableofcontents}{\oldtoc\newpage}
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+library(kableExtra)
+library(ragg)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  dpi = 300,
+  fig.align = "center",
+  out.width = "100%",
+  dev = "ragg_png" 
+)
+
+```
+
+\newpage
+
+# Exercise 1
+
+## Setup
+
+```{r setup_1}
+rm(list = ls())
+gc()
+
+library(sf) 
+library(spData)
+library(tidyverse) 
+library(readxl)
+library(units)
+library(rnaturalearth)
+
+```
+
+## Data Loading
+
+We have also checked that the projections of all the simple features are equal (WGS 84).
+
+```{r load_data_1}
+sf_world <- world
+sf_places <- st_read("./data/ne_10m_populated_places", "ne_10m_populated_places")
+sf_ports <- st_read("./data/ne_10m_ports", "ne_10m_ports")
+sf_airports <- st_read("./data/ne_10m_airports", "ne_10m_airports")
+```
+
+## Map of total population by country
+
+```{r agre}
+# Aggregate population by country using spatial join
+
+# First, join places to countries
+sf_places_joined <- st_join(
+  sf_places,
+  sf_world[, c("name_long", "continent")],
+  join = st_within
+)
+
+# Calculate total population per country from point data
+pop_by_country <- sf_places_joined %>%
+  st_drop_geometry() %>%
+  filter(!is.na(name_long)) %>%
+  group_by(name_long) %>%
+  summarise(
+    total_pop = sum(POP_MAX, na.rm = TRUE),
+    n_cities = n(),
+    .groups = "drop"
+  )
+
+# Merge population back to world sf object
+sf_world_pop <- sf_world %>%
+  left_join(pop_by_country, by = "name_long")
+
+```
+
+```{r figure1, fig.width=10, fig.height=9, fig.cap="Total population by country"}
+ ggplot(sf_world_pop) +
+  geom_sf(aes(fill = sqrt(total_pop)), color = "grey60", linewidth = 0.1) +
+  scale_fill_viridis_c(
+    option = "D",
+    labels = function(x) paste0(round(x^2 / 1e6), " M"), 
+    na.value = "grey90"
+  ) +
+  labs(
+    fill = "Population"
+  ) +
+  theme_minimal()
+```
+
+##  Histogram of country population distribution by continent
+
+```{r figure2, fig.width=10, fig.height=9, fig.cap="Country population distribution by continent"}
+sf_world_pop %>%
+  st_drop_geometry() %>%
+  filter(!is.na(total_pop), !is.na(continent)) %>%
+  ggplot(aes(x = sqrt(total_pop))) + 
+  geom_histogram(
+    bins = 30,
+    color = "white",
+    fill = "steelblue"
+  ) +
+  scale_x_continuous(
+    labels = function(x) paste0(round(x^2 / 1e6), " M")  
+  ) +
+  facet_wrap(~ continent, scales = "free_y") +
+  labs(
+    x = "Total population",
+    y = "Number of countries"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.spacing = unit(2, "lines")
+  )
+```
+
+## Histogram of (country-level) average distances between locations and ports or airports by continent.
+
+```{r ok_places}
+# Keep only places that were assigned a country
+places <- sf_places_joined %>%
+  filter(!is.na(name_long), !is.na(continent))
+```
+
+```{r compute_dist}
+# Compute the distance matrices in meters.
+d_ports <- st_distance(places, sf_ports)      
+d_air   <- st_distance(places, sf_airports)  
+
+# Nearest port/airport distance per place (convert to numeric and to km)
+places$dist_to_port_km <- as.numeric(apply(d_ports, 1, min))/1000
+places$dist_to_air_km  <- as.numeric(apply(d_air,   1, min))/1000
+
+# Add two columns with the average distance to ports and airports for each point.
+country_dist <- places %>%
+  st_drop_geometry() %>%
+  group_by(name_long, continent) %>%
+  summarise(
+    avg_dist_port_km = mean(dist_to_port_km, na.rm = TRUE),
+    avg_dist_air_km  = mean(dist_to_air_km,  na.rm = TRUE),
+    n_places = n(),
+    .groups = "drop"
+  )
+```
+
+```{r figure3, fig.width=10, fig.height=8, fig.cap="Country-level average distance to nearest port (by continent)"}
+# Ports histogram
+ggplot(country_dist, aes(x = avg_dist_port_km)) +
+  geom_histogram(bins = 30, color = "white") +
+  facet_wrap(~ continent, scales = "free_y") +
+  labs(
+    x = "Average distance (km)",
+    y = "Number of countries"
+  ) +
+  theme_minimal()
+```
+
+```{r figure4, fig.width=10, fig.height=8, fig.cap="Country-level average distance to nearest airport (by continent)"}
+# Airports histogram
+ggplot(country_dist, aes(x = avg_dist_air_km)) +
+  geom_histogram(bins = 30, color = "white") +
+  facet_wrap(~ continent, scales = "free_y") +
+  labs(
+    x = "Average distance (km)",
+    y = "Number of countries"
+  ) +
+  theme_minimal()
+```
+
+\newpage
+
+# Exercise 2
+
+## Setup
+
+```{r setup_2}
+rm(list = ls())
+gc()
+
+library(sf) 
+library(spData)
+library(tidyverse) 
+library(readxl)
+library(units)
+library(rnaturalearth)
+
+```
+
+## Load the data
+
+We have also checked that the projections of all the simple features are equal (WGS 84).
+
+```{r load_data}
+sf.world <- world
+africa <- sf.africa <- sf.world[sf.world$continent == "Africa", ]
+markets <- read_excel("./data/1.-Price--Production--and-Population-Data/MktCoords.xlsx")
+prices <- read_excel("./data/1.-Price--Production--and-Population-Data/PriceMaster4GAMS.xlsx")
+airports <- st_read("./data/ne_10m_airports", "ne_10m_airports")
+roads <- st_read("./data/ne_10m_roads", "ne_10m_roads")
+
+```
+
+##  Generate an sf POINT feature of market places across Africa
+
+```{r gen_point}
+# Creating the simple feature with the points of the markets from the .xlsx file.
+markets_sf <- st_as_sf(
+  markets,
+  coords = c("longitude", "latitude"),
+  crs = 4326
+)
+```
+
+```{r figure5, fig.width=10, fig.height=9, fig.cap="Market places across Africa"}
+# Plot the data
+ggplot() +
+  geom_sf(data = africa, fill = "gray95", color = "gray60") +
+  geom_sf(data = markets_sf, color = "black", size = 1.5) +
+  theme_minimal()
+```
+
+\newpage
+
+## Calculate minimum distance of each market to the coast, nearest road and nearest airport
+
+### Coast:
+```{r coast}
+# Create the border of Africa with st_union() as a reference of the coast, and transform 
+# it into a multistring.
+
+africa_coast <- st_union(africa) %>%  
+  st_cast("MULTILINESTRING")
+
+# Compute the distance with st_distance and save it.
+coast_dist <- st_distance(markets_sf, africa_coast)
+markets_sf$min_dist_coast <- as.numeric(coast_dist)/1000 # To km
+```
+
+### Nearest road:
+
+```{r road}
+# Restrict to Africa's roads.
+africa_roads <- roads[africa,]
+
+# Compute the distance with st_distance and save it.
+roads_dist <- st_distance(markets_sf, africa_roads)
+markets_sf$min_dist_road <- as.numeric(apply(roads_dist, 1, min))/1000 # To km
+```
+
+### Nearest airport:
+
+```{r airport}
+# Restrict to Africa's airports.
+africa_airports <- airports[africa,]
+
+# Compute the distance with st_distance and save it.
+airports_dist <- st_distance(markets_sf, africa_airports)
+markets_sf$min_dist_airport <- as.numeric(apply(airports_dist, 1, min))/1000 # To km
+```
+
+
+## Produce 3 scatter plots relating average prices with the minimum distances
+
+
+```{r avg_prices}
+# Computing average prices. First aggregate the different products by mktcode so each 
+# market has only one row with the average price at each time. Then we compute the average
+# price of each market trought time and add it in a new column called mean_price.
+
+prices_summary <- prices %>%
+  group_by(mktcode) %>%
+  summarize(across(`1`:`144`, ~ mean(replace_na(.x, 0)))) %>% 
+  rowwise() %>% 
+  mutate(
+    mean_price = mean(c_across(`1`:`144`)[c_across(`1`:`144`) != 0])
+  ) %>%
+  ungroup()%>%
+  select(mktcode, mean_price)
+
+markets_prices <- markets_sf %>%
+  left_join(prices_summary, by = c("mktcode" = "mktcode"))
+```
+
+\newpage
+
+### Scatter plot average prices vs distance to the coast:
+
+```{r figure6, fig.width=10, fig.height=9, fig.cap="Average Prices vs Distance to Coast"}
+ggplot(markets_prices, aes(x = min_dist_coast, y = mean_price)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  theme_minimal() +
+  labs(
+    x = "Minimum distance to coast (km)",
+    y = "Average market price"
+  )
+```
+
+\newpage
+
+### Scatter plot average prices vs distance to the nearest road:
+
+```{r figure7, fig.width=10, fig.height=9, fig.cap="Average Prices vs Distance to Nearest Road"}
+ggplot(markets_prices, aes(x = min_dist_road, y = mean_price)) +
+  geom_point(color = "orange", alpha = 0.6) +
+  theme_minimal() +
+  labs(
+    x = "Minimum distance to nearest road (km)",
+    y = "Average market price"
+  )
+
+```
+
+\newpage
+
+### Scatter plot average prices vs distance to the nearest airport:
+
+```{r figure8, fig.width=10, fig.height=9, fig.cap="Average Prices vs Distance to Nearest Airport"}
+ggplot(markets_prices, aes(x = min_dist_airport, y = mean_price)) +
+  geom_point(color = "darkgreen", alpha = 0.6) +
+  theme_minimal() +
+  labs(
+    x = "Minimum distance to nearest airport (km)",
+    y = "Average market price"
+  )
+```
+
+\newpage
+
+## Comments
+
+The scatter plots are constructed using the minimum distance to roads, coastlines, and airports as proxies for transportation and trade costs. Market prices are computed by averaging prices over time for each market code (or market type), allowing the analysis to focus on cross-sectional differences in average price levels across markets. 
+
+Although a positive relationship between distance and market prices would be expected, since greater remoteness is typically associated with higher transportation and trade costs, the scatter plots do not reveal a clear pattern. This likely reflects substantial heterogeneity across markets, as well as the limitations of using distance-based measures as proxies for trade costs, which do not capture differences in infrastructure quality, market integration, or other non-geographic factors affecting prices.
