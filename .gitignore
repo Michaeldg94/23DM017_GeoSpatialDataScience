@@ -29,6 +29,7 @@ Thumbs.db
 
 # Serialized / binary data
 *.rds
+*.log
 *.Rds
 *.Rda
 *.RData
