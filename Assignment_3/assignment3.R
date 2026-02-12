@@ -1,11 +1,4 @@
 # Take-Home Assignment — Lecture 06: Geospatial Data Sciences
-# Bruno Conte | Barcelona School of Economics
-# =============================================================================
-#
-# We load gdistance last because it masks tidyverse functions (select, filter,
-# extract, union). We prefix ambiguous calls with dplyr:: to stay safe.
-#
-# =============================================================================
 
 
 # Load libraries --------------------------------------------------------------
@@ -40,9 +33,7 @@ if (!file.exists(spei_path)) {
 }
 
 
-# =============================================================================
-# PART 1: Climate Change in the USA                                        ----
-# =============================================================================
+# PART 1: Climate Change in the USA
 
 
 # 1.1 Prepare US regions geometry ---------------------------------------------
@@ -121,9 +112,7 @@ ggplot(df_panel, aes(x = year, y = spei, color = region)) +
   theme_minimal()
 
 
-# =============================================================================
-# PART 2: Transportation Centrality in Spain                               ----
-# =============================================================================
+# PART 2: Transportation Centrality in Spain
 
 
 # 2.1 Spain boundary ----------------------------------------------------------
