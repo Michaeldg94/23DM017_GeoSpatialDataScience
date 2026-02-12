@@ -2,7 +2,7 @@
 title: "Assignment 3: Geospatial Data Sciences and Economic Spatial Models"
 author: |
   Sebastian Dong Uk Paik Sohn, Michael Duarte Gonçalves  
-  Gal·la Gelpi Buxade, Maria Victoria Suriel Nunez
+  Gal·la Gelpí Buxadé, Maria Victoria Suriel Nuñez
 date: "`r Sys.Date()`"
 output:
   pdf_document:
