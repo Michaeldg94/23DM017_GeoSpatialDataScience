@@ -49,9 +49,11 @@ spei_path <- "data/spei01.nc"
 if (!file.exists(spei_path)) {
   message("Downloading SPEI data (~340 MB)...")
   download.file(
-    url = paste0(
-      "https://www.dropbox.com/scl/fi/kmo2gj0iqvu52rat9ydmt/",
-      "spei01.nc?rlkey=1ahg7k4cs1uf1v52s5x6d0sxj&dl=1"
+    url = str_c(
+      "https://www.dropbox.com/scl/fi/",
+      "kmo2gj0iqvu52rat9ydmt/",
+      "spei01.nc?rlkey=1ahg7k4cs1uf1v52s5x6d0sxj",
+      "&dl=1"
     ),
     destfile = spei_path,
     mode     = "wb"
@@ -83,22 +85,33 @@ sf_regions <- sf_states %>%
 
 ## Loading the SPEI raster
 
-The NetCDF has 1,380 monthly layers (Jan 1901 - Dec 2015). We keep only
-January of each year from 1966 onward, giving us a clean 50-year annual panel.
+The NetCDF has 1,380 monthly layers (Jan 1901 - Dec 2015). We keep all
+months from 1966 to 2015 and compute the yearly average, giving us a
+clean 50-year annual panel.
 
 ```{r load-spei}
 r_spei     <- rast(spei_path)
 spei_dates <- time(r_spei)
 
-# One January layer per year, 1966--2015
+# Keep all monthly layers from 1966 to 2015
 layer_index <- which(
-  year(spei_dates) >= 1966 & month(spei_dates) == 1
+  year(spei_dates) >= 1966 &
+    year(spei_dates) <= 2015
 )
 
-r_spei_50  <- r_spei[[layer_index]]
-spei_years <- year(time(r_spei_50))
+r_spei_monthly <- r_spei[[layer_index]]
 
-names(r_spei_50) <- paste0("spei_", spei_years)
+# Compute yearly averages (mean of 12 months per year)
+spei_years_all <- year(time(r_spei_monthly))
+r_spei_50 <- tapp(
+  r_spei_monthly, spei_years_all, fun = mean
+)
+
+spei_years <- names(r_spei_50) %>%
+  str_extract("\\d{4}") %>%
+  as.integer()
+
+names(r_spei_50) <- str_c("spei_", spei_years)
 ```
 
 ## Zonal statistics
@@ -117,13 +130,16 @@ df_zonal <- exact_extract(
 
 # Pivot into a tidy panel: one row per region-year
 df_panel <- df_zonal %>%
-  mutate(region = sf_regions$REGION) %>%
+  mutate(REGION = sf_regions$REGION) %>%
   pivot_longer(
     cols      = starts_with("mean.spei_"),
     names_to  = "year",
     values_to = "spei"
   ) %>%
-  mutate(year = as.integer(str_extract(year, "\\d{4}")))
+  mutate(
+    year = str_extract(year, "\\d{4}") %>%
+      as.integer()
+  )
 ```
 
 ## Figure 1: SPEI evolution by region
@@ -133,8 +149,11 @@ Positive values indicate wetter-than-normal conditions, while negative values
 signal drought. We overlay a LOESS smoother (in blue) to capture the overall
 trend across all four regions.
 
-```{r fig-01, fig.cap = "SPEI by Census region with cross-region LOESS trend.", fig.width = 6.5, fig.height = 4}
-ggplot(df_panel, aes(x = year, y = spei, color = region)) +
+```{r fig-01, fig.cap = "SPEI by region.", fig.width = 6.5, fig.height = 4}
+ggplot(
+  df_panel,
+  aes(x = year, y = spei, color = REGION)
+) +
   geom_line(alpha = 0.7, linewidth = 0.6) +
   geom_smooth(
     aes(group = 1),
@@ -143,19 +162,16 @@ ggplot(df_panel, aes(x = year, y = spei, color = region)) +
     linewidth = 1.2,
     se        = TRUE
   ) +
-  labs(
-    title = "Climate Change in USA: SPEI Index by Region (1966-2015)",
-    x     = "Year",
-    y     = "SPEI",
-    color = "Region"
-  ) +
-  theme_minimal()
+  labs(x = "year", y = "spei", color = "REGION") +
+  theme_bw()
 ```
 
 Several patterns stand out. First, we observe a gentle downward slope in
 the LOESS trend, suggesting a modest drying tendency over the half-century.
-Second, individual drought episodes, like the mid-1970s, the late 1980s, appear simultaneously in multiple regions, pointing to
-large-scale climate drivers rather than purely local phenomena. Overall, the figure illustrates that while
+Second, individual drought episodes, like the mid-1970s, the
+late 1980s, appear simultaneously in multiple regions, pointing
+to large-scale climate drivers rather than purely local phenomena.
+Overall, the figure illustrates that while
 year-to-year variability dominates, there is a slow structural shift toward
 drier conditions that matters for long-run agricultural planning and water
 resource management.
@@ -179,10 +195,10 @@ sf_spain <- world %>%
 ```{r download-places, message = FALSE, warning = FALSE, results = "hide"}
 # Populated places
 sf_places_raw <- ne_download(
-  scale    = 10,
-  type     = "populated_places",
-  category = "cultural",
-  destdir  = "data",
+  scale       = 10,
+  type        = "populated_places",
+  category    = "cultural",
+  destdir     = "data",
   returnclass = "sf"
 )
 
@@ -200,10 +216,10 @@ sf_places <- sf_places_raw %>%
 ```{r download-roads, message = FALSE, warning = FALSE, results = "hide"}
 # Road network, cropped to Spain
 sf_roads_raw <- ne_download(
-  scale    = 10,
-  type     = "roads",
-  category = "cultural",
-  destdir  = "data",
+  scale       = 10,
+  type        = "roads",
+  category    = "cultural",
+  destdir     = "data",
   returnclass = "sf"
 )
 
@@ -217,7 +233,9 @@ sf_roads_spain <- sf_roads_raw %>%
 We rasterize the road network at 0.1 degree resolution. Road cells receive
 a value of 1, while all other cells get 1/100, meaning off-road travel is
 100 times more costly. This is a deliberately simple model: we are not
-claiming it captures actual travel times, but it gives us a reasonable approximation of how the road network shapes connectivity.
+claiming it captures actual travel times, but it gives us a
+reasonable approximation of how the road network shapes
+connectivity.
 
 ```{r friction-surface}
 # Template raster covering Spain
@@ -225,7 +243,9 @@ r_template <- rast() %>% crop(sf_spain)
 res(r_template) <- 0.1
 
 # Burn roads into the grid
-r_roads <- rasterize(vect(sf_roads_spain), r_template)
+r_roads <- rasterize(
+  vect(sf_roads_spain), r_template
+)
 
 # Off-road pixels become 1/100 (costly but not impossible)
 vv <- values(r_roads)
@@ -236,10 +256,16 @@ rm(vv)
 
 ## Figure 2: Friction surface
 
-```{r fig-02, fig.cap = "Rasterized road network as friction surface.", fig.width = 5, fig.height = 5}
+```{r fig-02, fig.cap = "Friction surface.", fig.width = 5, fig.height = 5}
 plot(r_roads, main = "Friction Surface - Spain")
-plot(st_geometry(sf_spain), add = TRUE, border = "black", lwd = 2)
-plot(st_geometry(sf_places), add = TRUE, pch = 20, cex = 1.5)
+plot(
+  st_geometry(sf_spain),
+  add = TRUE, border = "black", lwd = 2
+)
+plot(
+  st_geometry(sf_places),
+  add = TRUE, pch = 20, cex = 1.5
+)
 ```
 
 ## Transition matrix and bilateral distances
@@ -256,10 +282,8 @@ tr_matrix <- transition(
   x                  = raster::raster(r_roads),
   transitionFunction = mean,
   directions         = 8
-)
-
-# Correct for diagonal distortion in geographic coordinates
-tr_matrix <- geoCorrection(tr_matrix, type = "c")
+) %>%
+  geoCorrection(type = "c")
 ```
 
 ```{r bilateral-distances}
@@ -286,8 +310,10 @@ route on a map. We use `shortestPath()` for the Madrid-Vigo pair specifically,
 which returns a line geometry we can overlay on the road network.
 
 ```{r shortest-path}
-sf_madrid <- sf_places %>% dplyr::filter(name == "Madrid")
-sf_vigo   <- sf_places %>% dplyr::filter(name == "Vigo")
+sf_madrid <- sf_places %>%
+  dplyr::filter(name == "Madrid")
+sf_vigo <- sf_places %>%
+  dplyr::filter(name == "Vigo")
 
 # shortestPath gives us the line geometry for plotting
 path_mv <- shortestPath(
@@ -298,30 +324,74 @@ path_mv <- shortestPath(
 )
 
 # Convert to sf and assign CRS (shortestPath drops it)
-sf_path_mv <- st_as_sf(path_mv) %>% st_set_crs(4326)
+sf_path_mv <- path_mv %>%
+  st_as_sf() %>%
+  st_set_crs(4326)
 ```
 
-```{r fig-03, fig.cap = "Shortest path between Madrid and Vigo over the road network.", fig.width = 5.5, fig.height = 5.5}
+```{r fig-03, fig.cap = "Madrid--Vigo path.", fig.width = 5.5, fig.height = 5.5}
 ggplot() +
-  geom_sf(data = sf_spain, fill = "grey90", color = "black") +
-  geom_sf(data = sf_roads_spain, color = "grey40", linewidth = 0.3) +
-  geom_sf(data = sf_path_mv, color = "red", linewidth = 1) +
-  geom_sf(data = sf_places, size = 2, color = "black") +
-  geom_sf(data = sf_madrid, size = 4, color = "red") +
-  geom_sf(data = sf_vigo, size = 4, color = "blue") +
-  geom_sf_label(data = sf_madrid, aes(label = name), nudge_y = 0.3) +
-  geom_sf_label(data = sf_vigo, aes(label = name), nudge_y = 0.3) +
-  labs(title = "Road Network and Shortest Path: Madrid - Vigo") +
+  geom_sf(
+    data  = sf_spain,
+    fill  = "grey90",
+    color = "black"
+  ) +
+  geom_sf(
+    data      = sf_roads_spain,
+    color     = "grey40",
+    linewidth = 0.3
+  ) +
+  geom_sf(
+    data      = sf_path_mv,
+    color     = "red",
+    linewidth = 1
+  ) +
+  geom_sf(
+    data  = sf_places,
+    size  = 2,
+    color = "black"
+  ) +
+  geom_sf(
+    data  = sf_madrid,
+    size  = 4,
+    color = "red"
+  ) +
+  geom_sf(
+    data  = sf_vigo,
+    size  = 4,
+    color = "blue"
+  ) +
+  geom_sf_label(
+    data    = sf_madrid,
+    aes(label = name),
+    nudge_y = 0.3
+  ) +
+  geom_sf_label(
+    data    = sf_vigo,
+    aes(label = name),
+    nudge_y = 0.3
+  ) +
+  labs(
+    title = "Road Network & Shortest Path: Madrid - Vigo"
+  ) +
   theme_minimal()
 ```
 
 ```{r path-length}
-cat("Madrid-Vigo network distance:", round(st_length(sf_path_mv) / 1000, 0), "km\n")
+sf_path_mv %>%
+  st_length() %>%
+  `/`(1000) %>%
+  round(0) %>%
+  str_c(
+    "Madrid-Vigo network distance: ", ., " km"
+  ) %>%
+  cat("\n")
 ```
 
 ## Comparing isolation
 
-We extract each city's row from the distance matrix. We then stack the two sets of distances into a
+We extract each city's row from the distance matrix. We then
+stack the two sets of distances into a
 tidy tibble so we can compare them side by side.
 
 ```{r isolation-data}
@@ -350,17 +420,25 @@ or out on the periphery. If a city's curve is concentrated on the left, most
 other cities are nearby -- that city is well connected. If the curve shifts
 to the right, the city is structurally more isolated.
 
-```{r fig-04, fig.cap = "Density of network distances from Madrid and Vigo to the other top-10 cities.", fig.width = 6, fig.height = 4}
-ggplot(df_distances, aes(x = distance, fill = origin)) +
+```{r fig-04, fig.cap = "Madrid vs Vigo.", fig.width = 6, fig.height = 4}
+ggplot(
+  df_distances,
+  aes(x = distance, fill = origin)
+) +
   geom_density(alpha = 0.5) +
   xlim(0, 1500) +
+  scale_fill_manual(
+    values = c(
+      "Madrid" = "orangered",
+      "Vigo"   = "forestgreen"
+    )
+  ) +
   labs(
     title = "Transportation Centrality: Madrid vs. Vigo",
     x     = "Distance (km)",
     y     = "Density",
     fill  = "Origin"
   ) +
-  scale_fill_manual(values = c("Madrid" = "orangered", "Vigo" = "forestgreen")) +
   theme_minimal()
 ```
 
@@ -371,7 +449,8 @@ within a relatively narrow band. Vigo's distribution, by contrast,
 is shifted substantially to the right, every other top-10 city is farther
 away, and the spread is wider.
 
-We can interpret the gap between the two curves as a measure of differential market access. Firms in Madrid can
+We can interpret the gap between the two curves as a measure
+of differential market access. Firms in Madrid can
 reach a larger consumer base at lower transport cost than firms in Vigo.
 This structural advantage helps explain Madrid's dominance as a logistics
 and services hub, while Vigo, despite being an important Atlantic port, 

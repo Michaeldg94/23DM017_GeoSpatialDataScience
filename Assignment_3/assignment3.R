@@ -1,7 +1,10 @@
 # Take-Home Assignment — Lecture 06: Geospatial Data Sciences
 
 
-# Load libraries --------------------------------------------------------------
+# Load libraries ----------------------------------------------------------
+
+# Clean working environment
+rm(list = ls())
 
 library(tidyverse)
 library(sf)
@@ -13,19 +16,21 @@ library(rnaturalearthdata)
 library(gdistance)
 
 
-# Download external data (if needed) ------------------------------------------
+# Download external data (if needed) --------------------------------------
 
 dir.create("data", showWarnings = FALSE)
 
-# SPEI 1-month NetCDF from the course Dropbox — we only download it once
+# SPEI 1-month NetCDF from the course Dropbox
 spei_path <- "data/spei01.nc"
 
 if (!file.exists(spei_path)) {
   message("Downloading SPEI data (~340 MB)...")
   download.file(
-    url = paste0(
-      "https://www.dropbox.com/scl/fi/kmo2gj0iqvu52rat9ydmt/",
-      "spei01.nc?rlkey=1ahg7k4cs1uf1v52s5x6d0sxj&dl=1"
+    url = str_c(
+      "https://www.dropbox.com/scl/fi/",
+      "kmo2gj0iqvu52rat9ydmt/",
+      "spei01.nc?rlkey=1ahg7k4cs1uf1v52s5x6d0sxj",
+      "&dl=1"
     ),
     destfile = spei_path,
     mode     = "wb"
@@ -33,13 +38,12 @@ if (!file.exists(spei_path)) {
 }
 
 
-# PART 1: Climate Change in the USA
+# PART 1: Climate Change in the USA =======================================
 
 
-# 1.1 Prepare US regions geometry ---------------------------------------------
+# 1.1 Prepare US regions geometry -----------------------------------------
 
-# We start from us_states (spData), drop Alaska and Hawaii, and dissolve
-# state boundaries into the four Census regions
+# Drop Alaska & Hawaii, dissolve into four Census regions
 sf_states <- us_states %>%
   dplyr::filter(!NAME %in% c("Alaska", "Hawaii")) %>%
   dplyr::select(NAME, REGION)
@@ -51,28 +55,35 @@ sf_regions <- sf_states %>%
   ungroup()
 
 
-# 1.2 Load SPEI raster --------------------------------------------------------
+# 1.2 Load SPEI raster ----------------------------------------------------
 
-# The NetCDF has 1,380 monthly layers (Jan 1901 - Dec 2015). We keep only
-# January of each year from 1966 onward — a clean 50-year annual panel.
+# The NetCDF has 1,380 monthly layers (Jan 1901 – Dec 2015).
+# We keep all months from 1966–2015 and average by year.
 r_spei     <- rast(spei_path)
 spei_dates <- time(r_spei)
 
-# One January layer per year, 1966-2015
+# Keep all monthly layers from 1966 to 2015
 layer_index <- which(
-  year(spei_dates) >= 1966 & month(spei_dates) == 1
+  year(spei_dates) >= 1966 & year(spei_dates) <= 2015
 )
 
-r_spei_50  <- r_spei[[layer_index]]
-spei_years <- year(time(r_spei_50))
+r_spei_monthly <- r_spei[[layer_index]]
 
-names(r_spei_50) <- paste0("spei_", spei_years)
+# Compute yearly averages (mean of 12 months per year)
+spei_years_all <- year(time(r_spei_monthly))
+r_spei_50 <- tapp(
+  r_spei_monthly, spei_years_all, fun = mean
+)
+spei_years <- names(r_spei_50) %>%
+  str_extract("\\d{4}") %>%
+  as.integer()
+
+names(r_spei_50) <- str_c("spei_", spei_years)
 
 
-# 1.3 Zonal statistics --------------------------------------------------------
+# 1.3 Zonal statistics ----------------------------------------------------
 
-# We compute the area-weighted mean SPEI within each region for every year,
-# then reshape into long (tidy) format for plotting
+# Area-weighted mean SPEI per region per year
 df_zonal <- exact_extract(
   x   = r_spei_50,
   y   = sf_regions,
@@ -81,20 +92,26 @@ df_zonal <- exact_extract(
 
 # Pivot into a tidy panel: one row per region-year
 df_panel <- df_zonal %>%
-  mutate(region = sf_regions$REGION) %>%
+  mutate(REGION = sf_regions$REGION) %>%
   pivot_longer(
     cols      = starts_with("mean.spei_"),
     names_to  = "year",
     values_to = "spei"
   ) %>%
-  mutate(year = as.integer(str_extract(year, "\\d{4}")))
+  mutate(
+    year = str_extract(year, "\\d{4}") %>%
+      as.integer()
+  )
 
 
-# 1.4 Figure 1: SPEI evolution by region + LOESS trend ------------------------
+# 1.4 Figure 1: SPEI by region + LOESS trend ------------------------------
 
 # Positive SPEI = wetter than normal, negative = drought.
-# The blue LOESS smoother captures the overall trend across all four regions.
-ggplot(df_panel, aes(x = year, y = spei, color = region)) +
+# Blue LOESS smoother = overall trend across all regions.
+ggplot(
+  df_panel,
+  aes(x = year, y = spei, color = REGION)
+) +
   geom_line(alpha = 0.7, linewidth = 0.6) +
   geom_smooth(
     aes(group = 1),
@@ -103,38 +120,32 @@ ggplot(df_panel, aes(x = year, y = spei, color = region)) +
     linewidth = 1.2,
     se        = TRUE
   ) +
-  labs(
-    title = "Climate Change in USA: SPEI Index by Region (1966-2015)",
-    x     = "Year",
-    y     = "SPEI",
-    color = "Region"
-  ) +
-  theme_minimal()
+  labs(x = "year", y = "spei", color = "REGION") +
+  theme_bw()
 
 
-# PART 2: Transportation Centrality in Spain
+# PART 2: Transportation Centrality in Spain ==============================
 
 
-# 2.1 Spain boundary ----------------------------------------------------------
+# 2.1 Spain boundary ------------------------------------------------------
 
-# We grab Spain's boundary from spData::world
 sf_spain <- world %>%
   dplyr::filter(name_long == "Spain") %>%
   st_transform("EPSG:4326")
 
 
-# 2.2 Top 10 populated places in Spain ----------------------------------------
+# 2.2 Top 10 populated places in Spain ------------------------------------
 
-# Download Natural Earth populated places at 10m resolution
+# Download Natural Earth populated places (10m)
 sf_places_raw <- ne_download(
-  scale    = 10,
-  type     = "populated_places",
-  category = "cultural",
-  destdir  = "data",
+  scale       = 10,
+  type        = "populated_places",
+  category    = "cultural",
+  destdir     = "data",
   returnclass = "sf"
 )
 
-# Ensure lowercase columns (gpkg vs shp inconsistency)
+# Lowercase columns (gpkg vs shp inconsistency)
 names(sf_places_raw) <- tolower(names(sf_places_raw))
 
 # Top 10 Spanish cities by population
@@ -145,14 +156,13 @@ sf_places <- sf_places_raw %>%
   dplyr::select(name, pop_max)
 
 
-# 2.3 Crop road network within Spain ------------------------------------------
+# 2.3 Crop road network within Spain --------------------------------------
 
-# Download roads and clip to Spain's bounding box + boundary
 sf_roads_raw <- ne_download(
-  scale    = 10,
-  type     = "roads",
-  category = "cultural",
-  destdir  = "data",
+  scale       = 10,
+  type        = "roads",
+  category    = "cultural",
+  destdir     = "data",
   returnclass = "sf"
 )
 
@@ -161,51 +171,56 @@ sf_roads_spain <- sf_roads_raw %>%
   st_intersection(sf_spain)
 
 
-# 2.4 Build raster friction surface -------------------------------------------
+# 2.4 Build raster friction surface ----------------------------------------
 
-# We rasterize roads at 0.1 deg resolution. Road cells = 1, off-road = 1/100,
-# so off-road travel is 100x more costly
+# Rasterize roads at 0.1° resolution.
+# Road cells = 1, off-road = 1/100 (100× costlier)
 r_template <- rast() %>% crop(sf_spain)
 res(r_template) <- 0.1
 
-# Burn roads into the grid
-r_roads <- rasterize(vect(sf_roads_spain), r_template)
+r_roads <- rasterize(
+  vect(sf_roads_spain), r_template
+)
 
-# Off-road pixels become 1/100 (costly but not impossible)
+# Off-road pixels: costly but not impossible
 vv <- values(r_roads)
 vv[is.nan(vv) | is.na(vv)] <- 1 / 100
 values(r_roads) <- vv
 rm(vv)
 
 
-# 2.5 Figure 2: Friction surface ----------------------------------------------
+# 2.5 Figure 2: Friction surface ------------------------------------------
 
 plot(r_roads, main = "Friction Surface - Spain")
-plot(st_geometry(sf_spain), add = TRUE, border = "black", lwd = 2)
-plot(st_geometry(sf_places), add = TRUE, pch = 20, cex = 1.5)
+plot(
+  st_geometry(sf_spain),
+  add = TRUE, border = "black", lwd = 2
+)
+plot(
+  st_geometry(sf_places),
+  add = TRUE, pch = 20, cex = 1.5
+)
 
 
-# 2.6 Transition matrix and bilateral distances --------------------------------
+# 2.6 Transition matrix & bilateral distances -----------------------------
 
-# We convert the friction raster into a transition matrix with gdistance,
+# Convert friction raster to transition matrix,
 # then correct for lat/lon distortion
 tr_matrix <- transition(
   x                  = raster::raster(r_roads),
   transitionFunction = mean,
   directions         = 8
-)
+) %>%
+  geoCorrection(type = "c")
 
-# Correct for diagonal distortion in geographic coordinates
-tr_matrix <- geoCorrection(tr_matrix, type = "c")
-
-# All pairwise distances in one call — much faster than looping shortestPath()
+# All pairwise distances in one call
 dist_matrix <- costDistance(
   tr_matrix,
   as(sf_places, "Spatial")
 ) %>%
   as.matrix()
 
-# Label and convert to km
+# Label rows/cols and convert to km
 city_names <- sf_places$name
 rownames(dist_matrix) <- city_names
 colnames(dist_matrix) <- city_names
@@ -214,13 +229,14 @@ dist_matrix_km <- dist_matrix / 1000
 round(dist_matrix_km, 0)
 
 
-# 2.7 Figure 3: Madrid-Vigo shortest path -------------------------------------
+# 2.7 Figure 3: Madrid–Vigo shortest path ---------------------------------
 
-# We also want to see the actual route on a map, not just the distance number
-sf_madrid <- sf_places %>% dplyr::filter(name == "Madrid")
-sf_vigo   <- sf_places %>% dplyr::filter(name == "Vigo")
+sf_madrid <- sf_places %>%
+  dplyr::filter(name == "Madrid")
+sf_vigo <- sf_places %>%
+  dplyr::filter(name == "Vigo")
 
-# shortestPath gives us the line geometry for plotting
+# Compute shortest path geometry
 path_mv <- shortestPath(
   x      = tr_matrix,
   origin = st_coordinates(sf_madrid),
@@ -228,28 +244,69 @@ path_mv <- shortestPath(
   output = "SpatialLines"
 )
 
-# Convert to sf and assign CRS (shortestPath drops it)
-sf_path_mv <- st_as_sf(path_mv) %>% st_set_crs(4326)
+# Convert to sf and assign CRS
+sf_path_mv <- path_mv %>%
+  st_as_sf() %>%
+  st_set_crs(4326)
 
-cat("Madrid-Vigo network distance:", round(st_length(sf_path_mv) / 1000, 0), "km\n")
+  # Print distance
+sf_path_mv %>%
+  st_length() %>%
+  `/`(1000) %>%
+  round(0) %>%
+  str_c("Madrid-Vigo distance: ", ., " km") %>%
+  cat("\n")
 
 # Map with road network and shortest path
 ggplot() +
-  geom_sf(data = sf_spain, fill = "grey90", color = "black") +
-  geom_sf(data = sf_roads_spain, color = "grey40", linewidth = 0.3) +
-  geom_sf(data = sf_path_mv, color = "red", linewidth = 1) +
-  geom_sf(data = sf_places, size = 2, color = "black") +
-  geom_sf(data = sf_madrid, size = 4, color = "red") +
-  geom_sf(data = sf_vigo, size = 4, color = "blue") +
-  geom_sf_label(data = sf_madrid, aes(label = name), nudge_y = 0.3) +
-  geom_sf_label(data = sf_vigo, aes(label = name), nudge_y = 0.3) +
-  labs(title = "Road Network and Shortest Path: Madrid - Vigo") +
+  geom_sf(
+    data  = sf_spain,
+    fill  = "grey90",
+    color = "black"
+  ) +
+  geom_sf(
+    data      = sf_roads_spain,
+    color     = "grey40",
+    linewidth = 0.3
+  ) +
+  geom_sf(
+    data      = sf_path_mv,
+    color     = "red",
+    linewidth = 1
+  ) +
+  geom_sf(
+    data  = sf_places,
+    size  = 2,
+    color = "black"
+  ) +
+  geom_sf(
+    data  = sf_madrid,
+    size  = 4,
+    color = "red"
+  ) +
+  geom_sf(
+    data  = sf_vigo,
+    size  = 4,
+    color = "blue"
+  ) +
+  geom_sf_label(
+    data    = sf_madrid,
+    aes(label = name),
+    nudge_y = 0.3
+  ) +
+  geom_sf_label(
+    data    = sf_vigo,
+    aes(label = name),
+    nudge_y = 0.3
+  ) +
+  labs(
+    title = "Road Network & Shortest Path: Madrid - Vigo"
+  ) +
   theme_minimal()
 
 
-# 2.8 Compare isolation: Madrid vs Vigo ---------------------------------------
+# 2.8 Compare isolation: Madrid vs Vigo -----------------------------------
 
-# We extract each city's distances and stack them into a tidy tibble
 idx_madrid <- which(city_names == "Madrid")
 idx_vigo   <- which(city_names == "Vigo")
 
@@ -257,28 +314,39 @@ df_distances <- bind_rows(
   tibble(
     origin   = "Madrid",
     dest     = city_names[-idx_madrid],
-    distance = dist_matrix_km[idx_madrid, -idx_madrid]
+    distance = dist_matrix_km[
+      idx_madrid, -idx_madrid
+    ]
   ),
   tibble(
     origin   = "Vigo",
     dest     = city_names[-idx_vigo],
-    distance = dist_matrix_km[idx_vigo, -idx_vigo]
+    distance = dist_matrix_km[
+      idx_vigo, -idx_vigo
+    ]
   )
 )
 
 
-# 2.9 Figure 4: density of bilateral distances --------------------------------
+# 2.9 Figure 4: density of bilateral distances ----------------------------
 
-# Madrid's curve should cluster left (well connected), Vigo's shifts right
-# (more isolated from the rest of Spain's major cities)
-ggplot(df_distances, aes(x = distance, fill = origin)) +
+# Madrid clusters left (central), Vigo right (isolated)
+ggplot(
+  df_distances,
+  aes(x = distance, fill = origin)
+) +
   geom_density(alpha = 0.5) +
   xlim(0, 1500) +
+  scale_fill_manual(
+    values = c(
+      "Madrid" = "orangered",
+      "Vigo"   = "forestgreen"
+    )
+  ) +
   labs(
     title = "Transportation Centrality: Madrid vs. Vigo",
     x     = "Distance (km)",
     y     = "Density",
     fill  = "Origin"
   ) +
-  scale_fill_manual(values = c("Madrid" = "orangered", "Vigo" = "forestgreen")) +
   theme_minimal()
