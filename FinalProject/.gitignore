@@ -1,0 +1,22 @@
+# R session files
+.Rhistory
+.RData
+.Rproj.user/
+
+# Compiled PDF output (regenerable from .Rmd)
+final_project.pdf
+final_project.log
+
+# Reference papers (not our code)
+dp16276.pdf
+writing_cochrane.pdf
+geospatial_project_analysis-1.pdf
+
+# Cached data (large, regenerable)
+data/pois_all.rds
+
+# Generated plots (regenerable from R scripts)
+output/
+
+# Claude local settings
+.claude/
