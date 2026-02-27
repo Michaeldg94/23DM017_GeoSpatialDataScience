@@ -1,0 +1,53 @@
+# Somalia
+
+declarations:
+
+  states: [A, Pw]
+
+  controls: [S, P, M, X]
+
+  expectations: [ExP]
+
+  shocks: [eH, ePw]
+
+  parameters: [k, r, tau, B, epsi, Hbar]
+
+  
+equations:
+
+  arbitrage:
+
+    .. P+k-ExP/(1+r)       |    0 <= S <= inf
+    .. A+M - B*P^epsi-S-X  |    0 <= P <= inf
+    .. Pw+tau-P            |    0 <= M <= inf
+    .. P+tau-Pw            |    0 <= X <= inf
+
+  transition:
+
+    .. A = S(-1)+Hbar+eH
+    .. Pw = Pw(-1)+ePw
+
+  expectation:
+
+    .. ExP  = P(1)
+
+    
+calibration:
+
+  parameters:
+
+    k      :  0.0726744
+    r      :  0.395976071
+    tau    :  0.0764111
+    B      :  29.62527
+    epsi   :  -0.066
+    Hbar   :  29.59471449
+    
+  steady_state:
+
+    A  : 29.59471449
+    Pw : 1
+    S  : 0
+    P  : 1
+    M  : 0
+    X  : 0

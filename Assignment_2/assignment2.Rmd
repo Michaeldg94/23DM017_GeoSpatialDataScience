@@ -1,0 +1,778 @@
+---
+title: "Assignment 2: Geospatial Data Sciences and Economic Spatial Models"
+author: |
+  Sebastian Dong Uk Paik Sohn, Michael Duarte Gonçalves  
+  Gal·la Gelpí Buxadé, Maria Victoria Suriel Nuñez
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 1
+    number_sections: true
+header-includes:
+  - \usepackage{float}
+  - \floatplacement{figure}{H}
+  - \usepackage{xcolor}
+  - \usepackage{hyperref}
+  - \hypersetup{colorlinks=true, urlcolor=green!50!black}
+---
+
+\newpage
+
+# Introduction
+
+This assignment explores the spatial patterns of agricultural markets across Africa, drawing on the replication data from Porteous (2019). Our analysis proceeds in four parts. First, we examine global patterns of population distribution and infrastructure accessibility. Second, we focus on African grain markets to understand how prices vary spatially and relate to distance from key infrastructure. Third, we investigate the relationship between coastal location and net trade position. Finally, we visualize market catchment areas to better understand the geographic reach of individual markets.
+
+Throughout this document, we combine vector geometry operations with economic data to shed light on how geography shapes market outcomes. The catchment areas, in particular, help explain some of the counterintuitive patterns we observe—such as why coastal markets often show higher grain prices despite their proximity to trade infrastructure.
+
+# Setup
+
+We begin by loading the necessary packages. We use `sf` for spatial operations, the tidyverse suite for data manipulation and visualization, and `rnaturalearth` for geographic basemaps.
+
+```{r packages}
+if (!require("pacman")) install.packages("pacman")
+
+pacman::p_load(
+  sf, dplyr, tidyr, ggplot2, spData, rnaturalearth, rnaturalearthdata,
+  scales, viridis, here, readxl, janitor, patchwork
+)
+```
+
+Next, we load the Natural Earth datasets that provide global context for our analysis. These include populated places (cities), ports, and airports—all of which serve as reference points for measuring infrastructure accessibility.
+
+```{r load-data}
+sf_world <- spData::world
+
+sf_places <- ne_download(scale = 10, type = "populated_places",
+                         category = "cultural", returnclass = "sf")
+sf_ports <- ne_download(scale = 10, type = "ports",
+                        category = "cultural", returnclass = "sf")
+sf_airports <- ne_download(scale = 10, type = "airports",
+                           category = "cultural", returnclass = "sf")
+```
+
+# Part 1: World Population and Transportation
+
+## Population by Country
+
+To understand global population patterns, we spatially join the populated places dataset with country boundaries. This allows us to aggregate city-level population estimates to the country level. The spatial join uses `st_within` to assign each city to the country polygon that contains it.
+
+```{r pop-by-country}
+places_with_country <- st_join(sf_places, sf_world[, c("name_long", "continent")],
+                               join = st_within)
+
+pop_by_country <- places_with_country |>
+  st_drop_geometry() |>
+  group_by(name_long) |>
+  summarise(total_pop = sum(POP_MAX, na.rm = TRUE), .groups = "drop") |>
+  filter(!is.na(name_long))
+
+world_pop <- sf_world |>
+  left_join(pop_by_country, by = "name_long")
+```
+
+## Figure 1: Linear vs Log Scale Comparison
+
+Population data is notoriously skewed—a handful of countries (China, India, the United States) contain a disproportionate share of the world's population. This makes visualization tricky. A linear color scale concentrates all the visual variation at the top end, leaving most countries looking similar. A logarithmic scale spreads out the variation more evenly, revealing patterns that would otherwise be invisible.
+
+The comparison below illustrates this point. On the linear scale, only the most populous countries stand out. On the log scale, we can distinguish between moderately populated and sparsely populated regions much more easily.
+
+```{r fig-01, fig.cap="Population map comparing linear and logarithmic scales.", fig.width=6.5, fig.height=3}
+p_linear <- ggplot() +
+  geom_sf(data = world_pop, aes(fill = total_pop / 1e6),
+          color = "grey50", linewidth = 0.1) +
+  scale_fill_viridis_c(name = "Pop.", na.value = "lightgrey", labels = comma) +
+  labs(title = "Linear scale") +
+  theme_minimal() +
+  theme(legend.position = "bottom", legend.key.width = unit(0.6, "cm"))
+
+p_log <- ggplot() +
+  geom_sf(data = world_pop, aes(fill = total_pop / 1e6),
+          color = "grey50", linewidth = 0.1) +
+  scale_fill_viridis_c(name = "Pop.", na.value = "lightgrey",
+                       trans = "log10", labels = comma) +
+  labs(title = "Log scale") +
+  theme_minimal() +
+  theme(legend.position = "bottom", legend.key.width = unit(0.6, "cm"))
+
+p_linear + p_log
+```
+
+## Figure 2: World Population Map
+
+Based on the comparison above, we adopt the logarithmic scale for our final population map. This transformation makes it easier to compare population levels across countries of vastly different sizes.
+
+```{r fig-02, fig.cap="Total population by country (log scale).", fig.width=6.5, fig.height=4}
+ggplot() +
+  geom_sf(data = world_pop, aes(fill = total_pop / 1e6),
+          color = "grey50", linewidth = 0.2) +
+  scale_fill_viridis_c(name = "Pop.\n(millions)", na.value = "lightgrey",
+                       trans = "log10", labels = comma) +
+  labs(title = "Total Population by Country") +
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+## Data Coverage
+
+Before proceeding, we check how many countries have valid population data. Some small territories or disputed regions may lack coverage in the Natural Earth dataset.
+
+```{r data-coverage}
+pop_continent <- world_pop |>
+  st_drop_geometry() |>
+  filter(!is.na(total_pop), !is.na(continent), total_pop > 0)
+
+n_matched <- nrow(pop_continent)
+cat("Countries with population data:", n_matched, "\n")
+```
+
+## Figure 3: Population Histogram
+
+Histograms provide another way to see the skewness of population data. The linear histogram shows a classic right-skewed distribution with a long tail. The log-transformed histogram is much closer to symmetric, suggesting that population across countries follows something like a log-normal distribution.
+
+```{r fig-03, fig.cap="Population distribution comparing linear and logarithmic scales.", fig.width=6.5, fig.height=3}
+p_hist_linear <- ggplot(pop_continent, aes(x = total_pop / 1e6)) +
+  geom_histogram(bins = 30, fill = "grey40", color = "white") +
+  scale_x_continuous(labels = comma) +
+  labs(title = "Linear scale", x = "Population (millions)", y = "Count") +
+  theme_minimal()
+
+p_hist_log <- ggplot(pop_continent, aes(x = total_pop / 1e6)) +
+  geom_histogram(bins = 30, fill = "grey40", color = "white") +
+  scale_x_log10(labels = comma) +
+  labs(title = "Log scale", x = "Population (millions)", y = "Count") +
+  theme_minimal()
+
+p_hist_linear + p_hist_log
+```
+
+## Figure 4: Distribution by Continent
+
+Breaking down the distribution by continent reveals interesting heterogeneity. Africa and Europe show relatively tight distributions, while Asia exhibits much greater variance—reflecting the presence of both population giants like China and India alongside smaller nations.
+
+```{r fig-04, fig.cap="Country population distribution by continent.", fig.width=6.5, fig.height=5}
+ggplot(pop_continent, aes(x = total_pop / 1e6)) +
+  geom_histogram(bins = 25, fill = "grey40", color = "white") +
+  facet_wrap(~continent, scales = "free_y", ncol = 3) +
+  scale_x_log10(labels = comma) +
+  scale_y_continuous(breaks = pretty_breaks()) +
+  labs(title = "Country Population Distribution",
+       subtitle = paste0("N = ", n_matched, " countries"),
+       x = "Population (millions, log scale)", y = "Count") +
+  theme_minimal() +
+  theme(strip.text = element_text(face = "bold"))
+```
+
+## Distance to Infrastructure
+
+A key question in economic geography is how access to infrastructure varies across space. We compute the distance from each populated place to the nearest port and airport using `st_nearest_feature` to identify the closest infrastructure point and `st_distance` to measure the actual distance.
+
+```{r distance-infrastructure}
+places_proj <- st_transform(sf_places, crs = 4326)
+ports_proj <- st_transform(sf_ports, crs = 4326)
+airports_proj <- st_transform(sf_airports, crs = 4326)
+
+nearest_port <- st_nearest_feature(places_proj, ports_proj)
+nearest_airport <- st_nearest_feature(places_proj, airports_proj)
+
+places_proj <- places_proj |>
+  mutate(
+    dist_port_km = as.numeric(st_distance(
+      geometry, ports_proj[nearest_port, ]$geometry, by_element = TRUE)) / 1000,
+    dist_airport_km = as.numeric(st_distance(
+      geometry, airports_proj[nearest_airport, ]$geometry, by_element = TRUE)) / 1000
+  )
+```
+
+## Figure 5: Distance to Airport by Continent
+
+The bar chart below shows average distance to the nearest airport by continent. Antarctica stands out with the highest average distance, reflecting both the continent's large land area. This is not surprising, given the Natural Earth data. In fact, the Natural Earth airports are based on passenger terminals, explicitly excluding freight and private facilities. Consequently, Antarctic research station airstrips—which serve logistical rather than commercial passenger functions—are not represented in this database, explaining the extreme distances observed for Antarctica. Indeed, Antarctica is managed jointly by more than 50 nations. See for example [Wikipedia](https://en.wikipedia.org/wiki/List_of_airports_in_Antarctica) or [National Geographic](https://world.expeditions.com/en/travel-guide/antarctica-travel-guide/how-to-travel-to-antarctica).
+
+```{r fig-05, fig.cap="Average distance to nearest airport by continent.", fig.width=6, fig.height=3.5}
+places_with_cont <- st_join(places_proj, sf_world[, "continent"], join = st_within)
+
+dist_airport <- places_with_cont |>
+  st_drop_geometry() |>
+  filter(!is.na(continent)) |>
+  summarise(avg_dist = mean(dist_airport_km, na.rm = TRUE), .by = continent)
+
+ggplot(dist_airport, aes(x = reorder(continent, avg_dist), y = avg_dist)) +
+  geom_col(fill = "darkgreen", alpha = 0.8) +
+  coord_flip() +
+  labs(title = "Average Distance to Nearest Airport", x = NULL, y = "Distance (km)") +
+  theme_minimal()
+```
+
+# Part 2: African Markets (Porteous 2019)
+
+Having established the global context, we now turn to our main focus: agricultural markets in Africa. The data come from Porteous (2019), who assembled a comprehensive dataset on grain prices, production, and population across 230 markets in sub-Saharan Africa.
+
+## Load Data
+
+We extract the replication data from the zip archive and load the market coordinates and price data. The price data spans multiple years and crops, which we will aggregate to compute average prices for each market.
+
+```{r load-porteous}
+zip_path <- here("Assignment_2", "data", "ReplicationData_HighTradeCosts.zip")
+extract_dir <- here("Assignment_2", "data", "extracted")
+if (!dir.exists(extract_dir)) unzip(zip_path, exdir = extract_dir)
+
+data_dir <- file.path(extract_dir, "data", "1.-Price--Production--and-Population-Data")
+
+mktcoords <- read_excel(file.path(data_dir, "MktCoords.xlsx"),
+                        sheet = "MarketCoordinates") |>
+  clean_names() |>
+  rename(lon = longitude, lat = latitude)
+
+prices_wide <- read_excel(file.path(data_dir, "PriceMaster4GAMS.xlsx")) |>
+  clean_names()
+```
+
+## Compute Average Prices
+
+We reshape the price data from wide to long format, treating zeros and negative values as missing (these likely represent data collection issues rather than actual prices). We then compute the mean price, standard deviation, and number of observations for each market.
+
+```{r avg-prices}
+time_cols <- setdiff(names(prices_wide), c("mktcode", "country", "market", "crop"))
+
+prices_long <- prices_wide |>
+  pivot_longer(cols = all_of(time_cols), names_to = "period", values_to = "price") |>
+  mutate(price = if_else(price <= 0, NA_real_, as.numeric(price)))
+
+avg_price <- prices_long |>
+  summarise(
+    avg_price = mean(price, na.rm = TRUE),
+    sd_price = sd(price, na.rm = TRUE),
+    n_obs = sum(!is.na(price)),
+    .by = mktcode
+  )
+
+markets <- mktcoords |>
+  left_join(avg_price, by = "mktcode")
+```
+
+## Outlier Detection
+
+Price data often contains outliers due to measurement error, currency issues, or genuinely unusual market conditions. We use the interquartile range (IQR) method to flag potential outliers—markets whose average price falls more than 1.5 times the IQR below the first quartile or above the third quartile.
+
+```{r outliers}
+q1 <- quantile(markets$avg_price, 0.25, na.rm = TRUE)
+q3 <- quantile(markets$avg_price, 0.75, na.rm = TRUE)
+iqr <- q3 - q1
+
+markets <- markets |>
+  mutate(is_outlier = avg_price < (q1 - 1.5 * iqr) | avg_price > (q3 + 1.5 * iqr))
+
+cat("Outliers identified:", sum(markets$is_outlier, na.rm = TRUE), "\n")
+```
+
+## Figure 6: Price Distribution by Country
+
+The violin plots below show how prices vary across the ten countries with the most markets in our dataset. We observe substantial within-country variation in most cases, suggesting that factors beyond national borders—such as local geography and market accessibility—play an important role in determining prices.
+
+```{r fig-06, fig.cap="Price distribution for top 10 countries by market count.", fig.width=6, fig.height=4.5}
+top_countries <- markets |>
+  count(ctrycode, sort = TRUE) |>
+  slice_head(n = 10) |>
+  pull(ctrycode)
+
+markets |>
+  filter(ctrycode %in% top_countries) |>
+  ggplot(aes(x = reorder(ctrycode, avg_price, FUN = median, na.rm = TRUE),
+             y = avg_price)) +
+  geom_violin(fill = "grey85", color = NA) +
+  geom_boxplot(width = 0.12, fill = "white",
+               outlier.shape = 21, outlier.fill = "tomato", outlier.size = 1.5) +
+  geom_jitter(width = 0.08, alpha = 0.25, size = 0.8) +
+  coord_flip() +
+  scale_y_continuous(labels = comma) +
+  labs(title = "Price Distribution by Country",
+       subtitle = "Top 10 countries by market count",
+       x = NULL, y = "Average price") +
+  theme_minimal() +
+  theme(panel.grid.major.y = element_blank())
+```
+
+## Map Setup
+
+Before creating our maps, we convert the market data to a spatial object and load the Africa country boundaries. We also define a custom theme for our maps to ensure visual consistency.
+
+```{r map-setup}
+markets_sf <- st_as_sf(markets, coords = c("lon", "lat"), crs = 4326, remove = FALSE)
+africa <- ne_countries(scale = 50, continent = "Africa", returnclass = "sf")
+
+theme_map <- function() {
+  theme_void() +
+    theme(
+      plot.title = element_text(size = 11, face = "bold"),
+      plot.subtitle = element_text(size = 9, color = "grey40"),
+      plot.caption = element_text(size = 7, color = "grey50"),
+      legend.position = "bottom",
+      legend.title = element_text(size = 8),
+      legend.text = element_text(size = 7)
+    )
+}
+```
+
+## Figure 7: Price Map Comparison
+
+Just as with population data, the choice of scale matters for price visualization. The linear scale map is dominated by a few high-price markets, while the log scale reveals more nuanced spatial patterns. Notably, we can see regional price clusters that would be invisible on the linear scale.
+
+```{r fig-07, fig.cap="African market prices comparing linear and logarithmic scales.", fig.width=6.5, fig.height=4}
+p_price_linear <- ggplot() +
+  geom_sf(data = africa, fill = "#e8e8e8", color = "white", linewidth = 0.2) +
+  geom_sf(data = markets_sf, aes(color = avg_price), size = 1.2, alpha = 0.8) +
+  scale_color_viridis_c(option = "inferno", labels = comma, na.value = "grey70") +
+  labs(title = "Linear scale", color = "Price") +
+  theme_void() +
+  theme(legend.position = "bottom", legend.key.width = unit(0.5, "cm"))
+
+p_price_log <- ggplot() +
+  geom_sf(data = africa, fill = "#e8e8e8", color = "white", linewidth = 0.2) +
+  geom_sf(data = markets_sf, aes(color = avg_price), size = 1.2, alpha = 0.8) +
+  scale_color_viridis_c(option = "inferno", trans = "log10",
+                        labels = comma, na.value = "grey70") +
+  labs(title = "Log scale", color = "Price") +
+  theme_void() +
+  theme(legend.position = "bottom", legend.key.width = unit(0.5, "cm"))
+
+p_price_linear + p_price_log
+```
+
+## Figure 8: African Market Prices Map
+
+Our final price map uses the logarithmic scale and encodes both price (color) and data availability (size). Markets with more price observations appear larger, giving us a sense of data reliability. Potential outliers are highlighted with red circles. The map reveals interesting spatial patterns: the Sahel region tends to have higher prices, while parts of East Africa show lower prices.
+
+```{r fig-08, fig.cap="Agricultural market prices across Africa.", fig.width=6, fig.height=7}
+ggplot() +
+  geom_sf(data = africa, fill = "#e8e8e8", color = "white", linewidth = 0.25) +
+  geom_sf(data = filter(markets_sf, is_outlier), shape = 21, size = 2.5,
+          fill = NA, color = "tomato", stroke = 0.8) +
+  geom_sf(data = markets_sf, aes(fill = avg_price, size = n_obs),
+          shape = 21, color = "white", stroke = 0.2, alpha = 0.85) +
+  scale_fill_viridis_c(option = "inferno", trans = "log10", labels = comma,
+                       na.value = "grey70",
+                       guide = guide_colorbar(title = "Avg Price",
+                                              barwidth = 8, barheight = 0.4)) +
+  scale_size_continuous(range = c(0.8, 3), breaks = c(100, 500, 1000),
+                        guide = guide_legend(title = "Obs",
+                                             override.aes = list(fill = "grey50"))) +
+  labs(title = "Agricultural Market Prices Across Africa",
+       subtitle = "230 markets from Porteous (2019)",
+       caption = "Data: Porteous (2019) AEJ: Applied Economics") +
+  theme_map()
+```
+
+## Distance to Infrastructure (Africa)
+
+To understand how geography affects prices, we compute the distance from each market to three types of infrastructure: the coastline, major roads, and airports. These distances capture different aspects of market accessibility—coastal proximity relates to international trade, road distance affects overland transport costs, and airport distance may proxy for broader economic development.
+
+For accurate distance calculations across the African continent, we use an Albers Equal Area projection customized for Africa. The standard parallels at 20°N and 23°S bracket the continent's latitudinal extent, while the central meridian at 25°E passes through its center. This projection minimizes distortion for distance measurements across our study area.
+
+```{r africa-distances}
+coast <- ne_download(scale = 10, type = "coastline",
+                     category = "physical", returnclass = "sf")
+roads <- ne_download(scale = 10, type = "roads",
+                     category = "cultural", returnclass = "sf")
+airports <- ne_download(scale = 10, type = "airports",
+                        category = "cultural", returnclass = "sf")
+
+africa_bbox <- st_bbox(africa)
+africa_bbox[c("xmin", "ymin")] <- africa_bbox[c("xmin", "ymin")] - 5
+africa_bbox[c("xmax", "ymax")] <- africa_bbox[c("xmax", "ymax")] + 5
+
+coast_af <- st_crop(coast, africa_bbox)
+roads_af <- st_crop(roads, africa_bbox)
+airports_af <- st_crop(airports, africa_bbox)
+
+crs_aea <- "+proj=aea +lat_1=20 +lat_2=-23 +lat_0=0 +lon_0=25 +datum=WGS84"
+
+markets_p <- st_transform(markets_sf, crs = crs_aea)
+coast_p <- st_transform(coast_af, crs = crs_aea)
+roads_p <- st_transform(roads_af, crs = crs_aea)
+airports_p <- st_transform(airports_af, crs = crs_aea)
+
+markets_p <- markets_p |>
+  mutate(
+    dist_coast_km = as.numeric(st_distance(
+      geometry, coast_p[st_nearest_feature(geometry, coast_p), ],
+      by_element = TRUE)) / 1000,
+    dist_road_km = as.numeric(st_distance(
+      geometry, roads_p[st_nearest_feature(geometry, roads_p), ],
+      by_element = TRUE)) / 1000,
+    dist_airport_km = as.numeric(st_distance(
+      geometry, airports_p[st_nearest_feature(geometry, airports_p), ],
+      by_element = TRUE)) / 1000
+  )
+
+markets_df <- st_drop_geometry(markets_p)
+```
+
+## Figure 9: Distance Distributions
+
+The violin plots reveal the distribution of distances to each infrastructure type. Distance to coast shows the widest spread, with some inland markets located over 1,500 km from the nearest coastline. Road and airport distances are generally smaller but still show substantial variation. These differences in accessibility likely translate into differences in transport costs and, ultimately, prices.
+
+```{r fig-09, fig.cap="Distribution of distances to infrastructure.", fig.width=5.5, fig.height=3.5}
+markets_df |>
+  select(mktcode, dist_coast_km, dist_road_km, dist_airport_km) |>
+  pivot_longer(cols = starts_with("dist_"), names_to = "type", values_to = "distance") |>
+  mutate(type = case_match(type,
+                           "dist_coast_km" ~ "Coast",
+                           "dist_road_km" ~ "Road",
+                           "dist_airport_km" ~ "Airport")) |>
+  ggplot(aes(x = type, y = distance, fill = type)) +
+  geom_violin(alpha = 0.7, color = NA) +
+  geom_boxplot(width = 0.12, fill = "white",
+               outlier.shape = 21, outlier.fill = "tomato", outlier.size = 1) +
+  scale_fill_manual(values = c(Coast = "steelblue", Road = "darkorange",
+                               Airport = "darkgreen")) +
+  labs(title = "Distance Distributions", x = NULL, y = "Distance (km)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## Transformation Comparison
+
+When examining the relationship between distance and price, the choice of transformation matters. Standard economic theory suggests that transport costs add to prices, so we might expect a positive relationship between distance and price. However, the functional form is not obvious—the relationship could be linear, log-linear, or something else entirely.
+
+To explore this, we create a helper function that generates scatter plots with different combinations of transformations and reports the correlation coefficient for each.
+
+```{r transform-helper}
+make_transform_plot <- function(df, x_var, log_x, log_y, color, title, label) {
+  plot_df <- filter(df, .data[[x_var]] > 0, avg_price > 0)
+  
+  x_vals <- if (log_x) log10(plot_df[[x_var]]) else plot_df[[x_var]]
+  y_vals <- if (log_y) log10(plot_df$avg_price) else plot_df$avg_price
+  r <- round(cor(x_vals, y_vals, use = "complete.obs"), 3)
+  
+  p <- ggplot(plot_df, aes(x = .data[[x_var]], y = avg_price)) +
+    geom_point(alpha = 0.5, size = 1, color = color) +
+    geom_smooth(method = "lm", se = TRUE, color = "grey20",
+                fill = "grey80", linewidth = 0.6, alpha = 0.3) +
+    labs(title = title, subtitle = paste0("r = ", r),
+         x = paste(label, if (log_x) "(log km)" else "(km)"),
+         y = if (log_y) "Price (log)" else "Price") +
+    theme_minimal(base_size = 8) +
+    theme(plot.title = element_text(size = 9, face = "bold"),
+          plot.subtitle = element_text(size = 8, color = "grey40"),
+          axis.title = element_text(size = 7),
+          axis.text = element_text(size = 6))
+  
+  if (log_x) p <- p + scale_x_log10(labels = label_number(scale_cut = cut_short_scale()))
+  if (log_y) p <- p + scale_y_log10(labels = comma)
+  p
+}
+```
+
+## Figures 10-12: Transformation Comparisons
+
+The four-panel plots below show the price-distance relationship under different transformations for each infrastructure type. The correlation coefficient (r) helps us identify which specification best captures the linear relationship.
+
+For distance to coast, we observe a *negative* correlation—markets closer to the coast tend to have *higher* prices. This counterintuitive result deserves careful interpretation. Coastal cities are often major population centers with high demand for grain, while the agricultural hinterland produces surplus grain. The catchment area analysis in Part 4 helps explain this pattern: coastal markets serve large, densely populated catchments with high consumption needs, driving up local prices.
+
+```{r fig-10, fig.cap="Distance to coast vs price under different transformations.", fig.width=6, fig.height=5}
+(make_transform_plot(markets_df, "dist_coast_km", FALSE, FALSE,
+                     "steelblue", "Linear-Linear", "Coast") +
+   make_transform_plot(markets_df, "dist_coast_km", TRUE, FALSE,
+                       "steelblue", "Log Distance", "Coast")) /
+  (make_transform_plot(markets_df, "dist_coast_km", FALSE, TRUE,
+                       "steelblue", "Log Price", "Coast") +
+     make_transform_plot(markets_df, "dist_coast_km", TRUE, TRUE,
+                         "steelblue", "Log-Log", "Coast"))
+```
+
+Distance to roads shows a positive correlation, consistent with the idea that remote markets face higher transport costs. Markets far from major roads must rely on more expensive transport modes or face longer travel times, both of which increase prices.
+
+```{r fig-11, fig.cap="Distance to road vs price under different transformations.", fig.width=6, fig.height=5}
+(make_transform_plot(markets_df, "dist_road_km", FALSE, FALSE,
+                     "darkorange", "Linear-Linear", "Road") +
+   make_transform_plot(markets_df, "dist_road_km", TRUE, FALSE,
+                       "darkorange", "Log Distance", "Road")) /
+  (make_transform_plot(markets_df, "dist_road_km", FALSE, TRUE,
+                       "darkorange", "Log Price", "Road") +
+     make_transform_plot(markets_df, "dist_road_km", TRUE, TRUE,
+                         "darkorange", "Log-Log", "Road"))
+```
+
+Distance to airports shows a weak positive relationship. This may reflect the fact that airports are markers of economic development more broadly, rather than being directly relevant for grain transport (which is too bulky and low-value to ship by air).
+
+```{r fig-12, fig.cap="Distance to airport vs price under different transformations.", fig.width=6, fig.height=5}
+(make_transform_plot(markets_df, "dist_airport_km", FALSE, FALSE,
+                     "darkgreen", "Linear-Linear", "Airport") +
+   make_transform_plot(markets_df, "dist_airport_km", TRUE, FALSE,
+                       "darkgreen", "Log Distance", "Airport")) /
+  (make_transform_plot(markets_df, "dist_airport_km", FALSE, TRUE,
+                       "darkgreen", "Log Price", "Airport") +
+     make_transform_plot(markets_df, "dist_airport_km", TRUE, TRUE,
+                         "darkgreen", "Log-Log", "Airport"))
+```
+
+## Correlation Summary
+
+The table below summarizes the correlations across all distance-transformation combinations. Looking at the results, distance to road shows the strongest and most consistent positive relationship with price. Distance to coast shows a negative relationship across all specifications, while distance to airport shows weaker positive correlations.
+
+```{r correlation-summary}
+compute_cor <- function(df, dist_var, log_x, log_y) {
+  df_clean <- filter(df, .data[[dist_var]] > 0, avg_price > 0)
+  x <- if (log_x) log10(df_clean[[dist_var]]) else df_clean[[dist_var]]
+  y <- if (log_y) log10(df_clean$avg_price) else df_clean$avg_price
+  cor(x, y, use = "complete.obs")
+}
+
+cor_results <- expand.grid(
+  Distance = c("Coast", "Road", "Airport"),
+  Transform = c("Lin-Lin", "Log Dist", "Log Price", "Log-Log"),
+  stringsAsFactors = FALSE
+)
+
+cor_results$r <- mapply(function(dist, trans) {
+  d_var <- switch(dist, Coast = "dist_coast_km", Road = "dist_road_km",
+                  Airport = "dist_airport_km")
+  log_x <- trans %in% c("Log Dist", "Log-Log")
+  log_y <- trans %in% c("Log Price", "Log-Log")
+  compute_cor(markets_df, d_var, log_x, log_y)
+}, cor_results$Distance, cor_results$Transform)
+
+cor_wide <- cor_results |>
+  pivot_wider(names_from = Transform, values_from = r) |>
+  mutate(across(where(is.numeric), \(x) round(x, 3)))
+
+knitr::kable(cor_wide, caption = "Correlation coefficients under different transformations")
+```
+
+## Figure 13: Final Scatter Plots
+
+Based on our exploration, we select the semi-log specification (linear distance, log price) for our final presentation. This choice balances interpretability with fit—the distance coefficient can be interpreted as the percentage change in price per kilometer, and the correlations are reasonably strong.
+
+```{r scatter-helper}
+make_scatter <- function(df, x_var, label, color) {
+  plot_df <- filter(df, .data[[x_var]] > 0, avg_price > 0)
+  r <- round(cor(plot_df[[x_var]], log10(plot_df$avg_price), use = "complete.obs"), 3)
+  
+  ggplot(plot_df, aes(x = .data[[x_var]], y = avg_price)) +
+    geom_point(aes(shape = is_outlier), alpha = 0.6, size = 1.5, color = color) +
+    geom_smooth(method = "lm", se = TRUE, color = "grey20",
+                fill = color, alpha = 0.2, linewidth = 0.8) +
+    scale_y_log10(labels = comma) +
+    scale_shape_manual(values = c("FALSE" = 16, "TRUE" = 1), guide = "none") +
+    annotate("label", x = Inf, y = Inf, label = paste0("r = ", r),
+             hjust = 1.1, vjust = 1.3, size = 3, fontface = "bold",
+             fill = "white", label.size = 0) +
+    labs(title = label, x = paste("Distance to", label, "(km)"),
+         y = "Average Price (log scale)") +
+    theme_minimal(base_size = 9) +
+    theme(plot.title = element_text(size = 9, face = "bold"),
+          axis.title = element_text(size = 8))
+}
+```
+
+```{r fig-13, fig.cap="Price vs infrastructure distance (semi-log specification).", fig.width=6.5, fig.height=3}
+make_scatter(markets_df, "dist_coast_km", "Coast", "steelblue") +
+  make_scatter(markets_df, "dist_road_km", "Road", "darkorange") +
+  make_scatter(markets_df, "dist_airport_km", "Airport", "darkgreen") +
+  plot_layout(ncol = 3) +
+  plot_annotation(
+    title = "Price vs Infrastructure Distance (Semi-Log)",
+    subtitle = "Open circles indicate statistical outliers",
+    theme = theme(plot.title = element_text(size = 11, face = "bold"),
+                  plot.subtitle = element_text(size = 9, color = "grey40")))
+```
+
+# Part 3: Coastal Importers vs Inland Exporters
+
+The negative correlation between coastal proximity and price suggests an interesting hypothesis: coastal markets may be net importers of grain (consuming more than they produce), while inland markets are net exporters. This pattern would arise naturally if coastal cities are population centers that lack sufficient local agricultural production.
+
+## Load Production and Population Data
+
+To test this hypothesis, we load additional data on population and grain production from the Porteous replication files.
+
+```{r load-trade-data}
+alloc_pct <- read_excel(file.path(data_dir, "AllocPCT.xlsx")) |> clean_names()
+pop_raw <- read_excel(file.path(data_dir, "realCNH.xlsx"), sheet = "N")
+harvest_raw <- read_excel(file.path(data_dir, "realCNH.xlsx"), sheet = "H")
+```
+
+## Compute Net Trade Position
+
+We compute the net trade position for each market as the difference between production and consumption. Consumption is estimated by multiplying population by an assumed per-capita consumption of 150 kg per year. Markets with positive net exports produce more than they consume and are classified as "Net Exporters"; those with negative net exports are "Net Importers."
+
+```{r net-trade}
+pop_clean <- pop_raw |>
+  rename(market = 1) |>
+  mutate(across(-market, as.numeric)) |>
+  rowwise() |>
+  mutate(avg_pop_millions = mean(c_across(-market), na.rm = TRUE)) |>
+  ungroup() |>
+  select(market, avg_pop_millions)
+
+harvest_clean <- harvest_raw |>
+  rename(market = 1, crop = 2) |>
+  mutate(across(-c(market, crop), as.numeric)) |>
+  group_by(market) |>
+  summarise(total_prod = sum(c_across(-crop), na.rm = TRUE), .groups = "drop") |>
+  mutate(annual_prod_000t = total_prod / 11)
+
+per_capita_kg <- 150
+
+net_trade <- pop_clean |>
+  inner_join(harvest_clean, by = "market") |>
+  mutate(
+    consumption_000t = avg_pop_millions * 1000 * (per_capita_kg / 1000),
+    net_exports_000t = annual_prod_000t - consumption_000t,
+    trade_status = if_else(net_exports_000t > 0, "Net Exporter", "Net Importer")
+  )
+```
+
+## Classify Coastal Markets
+
+Rather than manually selecting which markets to call "coastal," we use a data-driven approach based on our computed distances. We classify any market within 50 km of the coastline as coastal. This threshold captures major port cities while avoiding false positives from markets near river deltas or estuaries. The approach is reproducible and can easily be adjusted if needed.
+
+```{r coastal-classify}
+coastal_threshold_km <- 50
+
+net_trade <- net_trade |>
+  left_join(markets_df |> select(market, dist_coast_km), by = "market") |>
+  mutate(is_coastal = dist_coast_km <= coastal_threshold_km)
+
+cat("Coastal markets:", sum(net_trade$is_coastal, na.rm = TRUE), "\n")
+cat("Inland markets:", sum(!net_trade$is_coastal, na.rm = TRUE), "\n")
+```
+
+## Hypothesis Test
+
+The contingency table below cross-tabulates location (coastal vs. inland) with trade status. We use a chi-square test to assess whether there is a statistically significant association between the two variables.
+
+```{r hypothesis-test}
+trade_table <- net_trade |>
+  filter(!is.na(is_coastal)) |>
+  mutate(location = if_else(is_coastal, "Coastal", "Inland")) |>
+  count(location, trade_status) |>
+  pivot_wider(names_from = trade_status, values_from = n, values_fill = 0)
+
+knitr::kable(trade_table, caption = "Trade status by location")
+
+chisq_result <- chisq.test(table(
+  net_trade$is_coastal[!is.na(net_trade$is_coastal)],
+  net_trade$trade_status[!is.na(net_trade$is_coastal)] == "Net Exporter"
+))
+
+cat("\nChi-square test: X2 =", round(chisq_result$statistic, 2),
+    ", p =", format.pval(chisq_result$p.value, digits = 3), "\n")
+```
+
+## Figure 14: Net Trade Position Map
+
+The map shows each market's net trade position, with green indicating net exporters (surplus regions) and red indicating net importers (deficit regions). Point size reflects the magnitude of the surplus or deficit. The spatial pattern is striking: coastal West Africa shows a concentration of net importers, while inland areas—particularly in the Sahel—tend to be net exporters.
+
+This pattern connects to the catchment area analysis in Part 4. Coastal markets serve large, densely populated catchments with high consumption needs, making them structural importers. Inland markets, by contrast, serve smaller catchments in agricultural areas, generating exportable surpluses.
+
+```{r fig-14, fig.cap="Net trade position of African grain markets.", fig.width=6, fig.height=7}
+markets_trade <- markets_sf |>
+  left_join(net_trade |> select(market, net_exports_000t, trade_status, is_coastal),
+            by = "market") |>
+  filter(!is.na(trade_status))
+
+ggplot() +
+  geom_sf(data = africa, fill = "#f5f5f5", color = "white", linewidth = 0.3) +
+  geom_sf(data = markets_trade,
+          aes(fill = trade_status, size = abs(net_exports_000t)),
+          shape = 21, color = "white", stroke = 0.3, alpha = 0.8) +
+  scale_fill_manual(values = c("Net Exporter" = "#2d8659",
+                               "Net Importer" = "#c44e52"),
+                    name = "Trade Status") +
+  scale_size_continuous(range = c(0.8, 4), name = "Volume\n(000 tonnes)",
+                        labels = comma) +
+  labs(title = "Net Trade Position of African Grain Markets",
+       subtitle = "Green = surplus (exports), Red = deficit (imports)",
+       caption = "Data: Porteous (2019)") +
+  theme_void() +
+  theme(plot.title = element_text(size = 11, face = "bold"),
+        plot.subtitle = element_text(size = 9, color = "grey40"),
+        legend.position = "right")
+```
+
+## Figure 15: Coastal vs Inland Comparison
+
+The comparison below directly tests our hypothesis. The boxplot shows that coastal markets have more negative net exports (larger deficits) on average compared to inland markets. The stacked bar chart shows the proportion of net exporters vs. importers in each category—coastal markets are more likely to be importers, consistent with our hypothesis.
+
+```{r fig-15, fig.cap="Comparison of net exports between coastal and inland markets.", fig.width=6.5, fig.height=3.5}
+p_box <- net_trade |>
+  filter(!is.na(is_coastal)) |>
+  mutate(location = if_else(is_coastal, "Coastal", "Inland")) |>
+  ggplot(aes(x = location, y = net_exports_000t, fill = location)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_boxplot(alpha = 0.7, outlier.shape = 21) +
+  scale_fill_manual(values = c(Coastal = "steelblue", Inland = "darkgreen")) +
+  labs(title = "Net Exports by Location", x = NULL, y = "Net Exports (000 tonnes)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p_bar <- net_trade |>
+  filter(!is.na(is_coastal)) |>
+  mutate(location = if_else(is_coastal, "Coastal", "Inland")) |>
+  count(location, trade_status) |>
+  group_by(location) |>
+  mutate(pct = n / sum(n)) |>
+  ggplot(aes(x = location, y = pct, fill = trade_status)) +
+  geom_col(position = "fill", alpha = 0.8) +
+  geom_text(aes(label = percent(pct, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "white", fontface = "bold", size = 3.5) +
+  scale_fill_manual(values = c("Net Exporter" = "#2d8659",
+                               "Net Importer" = "#c44e52"), name = "Status") +
+  scale_y_continuous(labels = percent) +
+  labs(title = "Proportion by Trade Status", x = NULL, y = NULL) +
+  theme_minimal()
+
+p_box + p_bar
+```
+
+# Part 4: Market Catchment Areas (Porteous Figure 4)
+
+To better understand the spatial structure of African grain markets, we visualize the market catchment areas from the Porteous (2019) replication data. Each catchment represents the geographic area for which a particular market is the closest in terms of travel time, following the methodology of Pozzi and Robinson (2008).
+
+The catchment areas help explain several patterns we have observed:
+
+1. **The negative price-coast correlation**: Coastal catchments tend to be smaller but serve denser populations. These urban markets have high demand relative to local supply, pushing prices up despite proximity to ports.
+
+2. **The inland exporter pattern**: Interior catchments are larger, covering more agricultural land relative to population. These markets accumulate surplus grain that flows toward deficit areas.
+
+3. **Regional price clusters**: Markets within the same region often share similar catchment characteristics—soil quality, rainfall, population density—leading to correlated prices.
+
+```{r fig-16, fig.cap="Market catchment areas based on travel time accessibility.", fig.width=6, fig.height=7.5}
+catchment_path <- here("Assignment_2", "data", "extracted", "data",
+                       "1.-Price--Production--and-Population-Data",
+                       "Catchments", "MktCatch6Plus5_Dissolve.shp")
+
+if (file.exists(catchment_path)) {
+  catchments <- st_read(catchment_path, quiet = TRUE)
+  catchments_wgs84 <- st_transform(catchments, crs = 4326)
+  
+  n_catchments <- nrow(catchments_wgs84)
+  set.seed(42)
+  catchments_wgs84$fill_color <- gray(runif(n_catchments, 0.25, 0.85))
+  
+  ggplot() +
+    geom_sf(data = catchments_wgs84, aes(fill = fill_color),
+            color = "white", linewidth = 0.1, show.legend = FALSE) +
+    scale_fill_identity() +
+    geom_sf(data = africa, fill = NA, color = "darkred", linewidth = 0.4) +
+    geom_sf(data = markets_sf, color = "black", size = 0.8) +
+    coord_sf(xlim = c(-20, 55), ylim = c(-37, 40)) +
+    labs(title = "230 Market Catchment Areas",
+         subtitle = "Each shaded region represents the area served by its nearest market",
+         caption = "Methodology based on Pozzi and Robinson (2008)") +
+    theme_void() +
+    theme(plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+          plot.subtitle = element_text(size = 9, color = "grey40", hjust = 0.5),
+          plot.caption = element_text(size = 7, color = "grey50", face = "italic"))
+} else {
+  cat("Catchment shapefile not found at:", catchment_path, "\n")
+}
+```
+
+The figure reveals the irregular geometry of market catchments, shaped by road networks, terrain, and national boundaries. Note how catchments near major cities tend to be smaller (markets are closer together), while interior catchments stretch across vast distances. This heterogeneity in catchment size directly affects the supply-demand balance and, ultimately, prices at each market.
+
+# References
+
+Porteous, O. (2019). High trade costs and their consequences: An estimated dynamic model of African agricultural storage and trade. *American Economic Journal: Applied Economics*, 11(4), 327-366.
+

@@ -1,0 +1,73 @@
+# Sudan-South Sudan
+# NB c is for coastal country, i is for inland country
+# trade variables c with world, i between countries
+
+declarations:
+
+  states: [Ac, Ai, Pw]
+
+  controls: [Sc, Si, Pc, Pi, Mc, Mi, Xc, Xi]
+
+  expectations: [ExPc, ExPi]
+
+  shocks: [eHc, eHi, ePw]
+
+  parameters: [kc, ki, rc, ri, tauc, taui, Bc, Bi, epsi, Hbarc, Hbari]
+
+  
+equations:
+
+  arbitrage:
+
+    .. Pc+kc-ExPc/(1+rc)               |    0 <= Sc <= inf
+    .. Pi+ki-ExPi/(1+ri)               |    0 <= Si <= inf
+    .. Ac+Mc+Xi - Bc*Pc^epsi-Sc-Xc-Mi  |    0 <= Pc <= inf
+    .. Ai+Mi - Bi*Pi^epsi-Si-Xi        |    0 <= Pi <= inf
+    .. Pw+tauc-Pc                      |    0 <= Mc <= inf
+    .. Pc+taui-Pi                      |    0 <= Mi <= inf
+    .. Pc+tauc-Pw                      |    0 <= Xc <= inf
+    .. Pi+taui-Pc                      |    0 <= Xi <= inf
+
+
+  transition:
+
+    .. Ac = Sc(-1)+Hbarc+eHc
+    .. Ai = Si(-1)+Hbari+eHi
+    .. Pw = Pw(-1)+ePw
+
+  expectation:
+
+    .. ExPc  = Pc(1)
+    .. ExPi  = Pi(1)
+
+    
+calibration:
+
+  parameters:
+
+    kc     :  0.0571152
+    ki     :  0.2514408
+    rc     :  0.372415712
+    ri     :  0.617482198
+    tauc   :  0.09105
+    taui   :  0.075
+    Bc     :  200.2344
+    Bi     :  200.2344
+    epsi   :  -0.066
+    Hbarc  :  177.4682098
+    Hbari  :  73.43213174
+
+    
+  steady_state:
+
+    Ac : 177.4682098
+    Ai : 73.43213174
+    Pw : 1
+    Sc : 0
+    Si : 0
+    Pc : 1
+    Pi : 1
+    Mc : 0
+    Mi : 0
+    Xc : 0
+    Xi : 0

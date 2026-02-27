@@ -1,0 +1,53 @@
+# Senegal
+
+declarations:
+
+  states: [A, Pw]
+
+  controls: [S, P, M, X]
+
+  expectations: [ExP]
+
+  shocks: [eH, ePw]
+
+  parameters: [k, r, tau, B, epsi, Hbar]
+
+  
+equations:
+
+  arbitrage:
+
+    .. P+k-ExP/(1+r)       |    0 <= S <= inf
+    .. A+M - B*P^epsi-S-X  |    0 <= P <= inf
+    .. Pw+tau-P            |    0 <= M <= inf
+    .. P+tau-Pw            |    0 <= X <= inf
+
+  transition:
+
+    .. A = S(-1)+Hbar+eH
+    .. Pw = Pw(-1)+ePw
+
+  expectation:
+
+    .. ExP  = P(1)
+
+    
+calibration:
+
+  parameters:
+
+    k      :  0.0605232
+    r      :  0.359422132
+    tau    :  0.200505465
+    B      :  170.6498
+    epsi   :  -0.066
+    Hbar   :  103.3048528
+    
+  steady_state:
+
+    A  : 103.3048528
+    Pw : 1
+    S  : 0
+    P  : 1
+    M  : 0
+    X  : 0

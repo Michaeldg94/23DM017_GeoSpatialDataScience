@@ -77,4 +77,7 @@ Thumbs.db
 
 # Explicit exceptions (tracked directories)
 Assignment_1/papers/Mettetal_2019/data/elevation/
+!Assignment_2/data/**
+!Assignment_2/output/**
+Assignment_2/data/ReplicationData_HighTradeCosts.zip
 
