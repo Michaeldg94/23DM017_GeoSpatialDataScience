@@ -13,10 +13,10 @@ writing_cochrane.pdf
 geospatial_project_analysis-1.pdf
 
 # Cached data (large, regenerable)
-data/pois_all.rds
+# data/pois_all.rds
 
 # Generated plots (regenerable from R scripts)
-output/
+# output/
 
 # Claude local settings
 .claude/

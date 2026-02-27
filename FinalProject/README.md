@@ -1,6 +1,6 @@
 # 15-Minute City in Barcelona: Income and Access to Essential Services
 
-Final project for the Geospatial Data Science course (BSE Data Science Methodology, 2025).
+Final project for the Geospatial Data Science course (BSE Data Science Methodology, 2026).
 
 ## Research Question
 
