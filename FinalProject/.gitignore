@@ -15,6 +15,11 @@ geospatial_project_analysis-1.pdf
 # Cached data (large, regenerable)
 # data/pois_all.rds
 
+# Network data (large, regenerable via R/00_network_access.R)
+data/04_network/*.pbf
+data/04_network/network.dat
+data/04_network/walk_times.rds
+
 # Generated plots (regenerable from R scripts)
 # output/
 

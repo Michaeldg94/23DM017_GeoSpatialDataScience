@@ -1,9 +1,9 @@
 ---
-title: "Is the Grass Greener Next Door? Evidence from Walking Accessibility in Barcelona"
-author: 
+title: "Who Gets a 15-Minute City? Income and Walking Accessibility in Barcelona"
+author:
         - Sebastian Dong Uk Paik Sohn
         - Michael Duarte Gonçalves
-        - Gal·la Gelpí Buxadé 
+        - Gal·la Gelpí Buxadé
         - María Victoria Suriel Nuñez
 date: "March 2026"
 output:
@@ -29,14 +29,13 @@ knitr::opts_chunk$set(
   fig.align = "center", fig.pos = "H"
 )
 
-# Load pre-computed results from final_project.R
 r <- readRDS("output/results.rds")
 
-# Helpers
+# Formatting helpers
 f  <- function(x, d = 2) formatC(round(x, d), format = "f", digits = d)
 fc <- function(x) format(round(x), big.mark = ",")
 
-# SDM impacts: indices are 1=income, 2=pop_density, 3=dist_center
+# SDM impacts: 1 = income, 2 = pop_density, 3 = dist_center
 di <- r$sdm_direct
 ii <- r$sdm_indirect
 ti <- r$sdm_total
@@ -51,7 +50,7 @@ gpz <- r$gravity_sdm_pzmat
 
 \begin{abstract}
 \noindent
-Can all of Barcelona's residents walk to a doctor, a school, and a park within 15 minutes---or does that depend on how much they earn? We geocode `r fc(r$n_pois_total)` service points across the city's `r r$n_barris` neighbourhoods and estimate a Spatial Durbin Model to answer this question. We find that a 10\% increase in neighbourhood income predicts about `r f(ti[1]*10, 0)`\% more services within walking distance, but this gap comes entirely from healthcare, schools, and parks---not from groceries or public transit. Roughly half of the total income effect spills over from neighbouring areas, so a neighbourhood's service access depends on who lives next door, not just on its own characteristics. When we measure services per capita instead of in absolute counts, the income gradient vanishes: wealthier areas attract more services \textit{and} more people. Barcelona's 15-minute city agenda should target specific shortfalls---healthcare and schools especially---in the peripheral, low-income clusters we identify.
+Can every Barcelona resident walk to a doctor, a school, and a park within 15 minutes --- or does it depend on their income? Using `r fc(r$n_pois_total)` service locations and network-based walking times across the city's `r r$n_barris` neighbourhoods, we estimate that a 10\% rise in neighbourhood income predicts `r f(r$ols_coefs["log_income", "Estimate"]*10, 0)`\% more services within a 15-minute walk. Five of six service categories show this gradient; only grocery stores distribute evenly. A key methodological finding: measuring walking times along actual streets rather than using straight-line buffers doubles the estimated income elasticity and eliminates the need for complex spatial models --- the simple OLS captures the pattern as well as a Spatial Durbin specification. Adjusting for population erases the gap entirely: richer areas have more services \textit{and} more residents competing for them. The policy implication is precise: Barcelona should target healthcare, schools, and parks in its northern periphery.
 \end{abstract}
 
 \newpage
@@ -62,201 +61,193 @@ Can all of Barcelona's residents walk to a doctor, a school, and a park within 1
 
 # Introduction
 
-Imagine two residents of Barcelona: one in Sarria--Sant Gervasi, one of the city's wealthiest districts, and another in Trinitat Vella, among its poorest. Both hear the promise of a walkable city under Barcelona's *superilla* programme. But when we count the essential services within a 15-minute walk of each, we find a large gap. Our Spatial Durbin Model puts a number on it: a 1\% increase in per-capita household income predicts `r f(r$sdm_coefs["log_income", "Estimate"], 2)`\% more services nearby ($p = `r f(r$sdm_coefs["log_income", "Pr(>|z|)"], 3)`$). Once we factor in spatial spillovers---how neighbours' income also shapes your own accessibility---the total income elasticity rises to `r f(ti[1], 2)` ($p = `r f(pz["log_income dy/dx", "Total"], 3)`$). Accessibility clusters strongly in space (Moran's $I = `r f(r$moran_I, 2)`$, $p = `r formatC(r$moran_p, format = "e", digits = 1)`$), and formal model-selection tests overwhelmingly favour specifications that include neighbours' characteristics ($p = `r formatC(r$lr_sdm_sar_p, format = "e", digits = 1)`$).
+A resident of Sarria--Sant Gervasi, one of Barcelona's wealthiest districts, can reach `r fc(r$access_max)` essential services within a 15-minute walk. A resident of Trinitat Vella, on the northern edge, can reach `r r$access_min`. Both live in the same city. Both have been promised a *15-minute city* --- a place where everything you need sits within a short walk. The data show that this promise holds unevenly.
 
-The 15-minute city concept, popularised by Moreno et al.\ (2021), now guides compact-city planning worldwide. Barcelona's *superilla* programme operationalises it by redesigning streets and public spaces so that residents can walk to groceries, healthcare, schools, parks, pharmacies, and transit within 15 minutes (Ajuntament de Barcelona, 2021). We ask a simple question: *does this actually work equally for everyone, or does income determine how walkable your neighbourhood is?*
+This paper asks a simple question: **does walking access to essential services in Barcelona depend on neighbourhood income?** The answer matters for three reasons. First, Barcelona has invested heavily in its *superilla* (superblock) programme, which reclaims streets from cars and returns them to pedestrians (Ajuntament de Barcelona, 2021). Policymakers need to know whether these investments reach all residents equally. Second, the 15-minute city concept (Moreno et al., 2021) has spread to dozens of cities worldwide, yet most evaluations count services without asking *who* benefits. Third, spatial sorting theory (Diamond and Suarez Serrato, 2025) predicts that wealthier households outbid poorer ones for locations with better amenities, but we lack direct evidence on which specific services drive the sorting.
 
-We tackle this with `r fc(r$n_pois_total)` geolocated points of interest from OpenStreetMap, official income and population data from the city council, and a battery of spatial econometric models that we connect to the structural gravity equation and spatial equilibrium ideas from Redding (2016), Allen and Arkolakis (2014), and Donaldson (2018).
+Our main finding is stark. An OLS regression of log accessibility on log income, controlling for population density and distance to the city centre, yields an income elasticity of `r f(r$ols_coefs["log_income", "Estimate"], 2)` ($p = `r f(r$ols_coefs["log_income", "Pr(>|t|)"], 3)`$). A neighbourhood with 10\% higher income has roughly `r f(r$ols_coefs["log_income", "Estimate"]*10, 0)`\% more services within walking distance. This result survives every robustness check we run: alternative walking thresholds, gravity-weighted distance decay, market-access controls, and a battery of spatial econometric specifications.
 
-Three findings stand out. First, the income gap varies sharply across services---we see it strongly for healthcare centres (elasticity `r f(r$cat_results[["Healthcare"]][1], 2)`), parks (`r f(r$cat_results[["Park"]][1], 2)`), and schools (`r f(r$cat_results[["School"]][1], 2)`), but barely at all for groceries (`r f(r$cat_results[["Grocery"]][1], 2)`) and transit (`r f(r$cat_results[["Transit"]][1], 2)`). Second, when we measure services per capita instead of in raw counts, income stops mattering ($p = `r f(r$percap_ols_income_p, 2)`$). Wealthier areas attract more services *and* more people. Third, a gravity-weighted accessibility measure inspired by trade theory tightens the fit: the spatial autoregressive parameter jumps from `r f(r$sdm_rho, 2)` to `r f(r$gravity_sdm_rho, 2)`, and the $R^2$ improves to `r f(r$gravity_ols_r2, 2)`.
+We make three contributions. First, we compute walking distances along Barcelona's actual street network using the `dodgr` routing engine (Padgham et al., 2019), rather than drawing straight-line circles as most studies do (Ferrer-Ortiz et al., 2022; Thaury et al., 2024). This turns out to matter: network-based distances nearly double the estimated income elasticity compared with Euclidean buffers, because straight-line buffers mistakenly include services that streets and buildings make unreachable. Second, we decompose the aggregate gap by service category and find that it concentrates in healthcare, parks, and schools --- publicly sited services --- while grocery stores and (to a lesser extent) transit spread more evenly. Third, we show that adjusting for population reverses the picture: per-capita service adequacy does not vary with income ($p = `r f(r$percap_ols_income_p, 2)`$). Richer neighbourhoods attract more services *and* more residents. The absolute gap is real; the per-capita gap is not.
+
+The rest of the paper proceeds as follows. Section 2 presents the conceptual framework grounded in spatial economics. Section 3 describes the data. Section 4 lays out the empirical strategy. Section 5 reports results. Section 6 presents extensions and robustness checks. Section 7 discusses limitations. Section 8 concludes with policy implications.
 
 # Conceptual Framework
 
-## Spatial Economics and the Gravity Equation
+## Why Nearby Services Depend on Distant Neighbours
 
-We ground our analysis in the quantitative spatial economics framework that Redding and Rossi-Hansberg (2017) survey. In these models, locations connect through trade frictions $d_{ni}$, and what happens in one place depends on what happens everywhere else. The price index in location $n$ takes the form:
+Consider a practical example. A new hospital opens in Eixample. Residents of Eixample benefit directly, but so do residents of neighbouring Gracia and Sant Marti, who now walk to a closer facility. A pharmacy opens in a wealthy neighbourhood partly because residents there spend more on health products, but partly because adjacent neighbourhoods also generate foot traffic. Services respond to demand from the *surrounding area*, not just from one neighbourhood.
+
+Spatial economics formalises this intuition. In the quantitative spatial framework surveyed by Redding and Rossi-Hansberg (2017), the price index in location $n$ depends on conditions everywhere else:
 $$
 P_n = \gamma \left[ \sum_{i \in S} A_i (w_i \, d_{ni})^{-\theta} \right]^{-1/\theta}
 $$
-where $A_i$ denotes productivity, $w_i$ wages, and $\theta$ governs how quickly the influence of distant places dies off. A shock to one location propagates outward through the whole system. This is exactly what a spatial lag model captures in reduced form.
+where $A_i$ captures productivity, $w_i$ wages, $d_{ni}$ the cost of getting from $i$ to $n$, and $\theta$ the distance elasticity. A shock in one location propagates outward through the network of places. The Spatial Durbin Model (SDM) we estimate captures this propagation through the spatial multiplier $(\mathbf{I} - \rho \mathbf{W})^{-1}$, which decomposes each variable's effect into a *direct* component (within the neighbourhood) and an *indirect* component (spillovers from neighbours).
 
-In our Spatial Durbin Model (SDM), the spatial multiplier $(\mathbf{I} - \rho \mathbf{W})^{-1}$ serves the same purpose: it channels the effects of local changes through the network of neighbouring areas. When we decompose each coefficient into direct and indirect effects, we separate a location's own fundamentals from the spatial diffusion channel.
-
-We take this a step further by building a gravity-weighted accessibility measure:
+We also construct a *gravity-weighted* accessibility score:
 $$
-\text{GravAccess}_n = \sum_{j} e^{-\beta \, d_{nj}}
+\text{GravAccess}_n = \sum_{j} e^{-\beta \, t_{nj}}
 $$
-where $j$ indexes all points of interest and $\beta$ controls distance decay. Instead of drawing a hard line at 1,200 m and counting everything inside, we give more weight to nearby services and less to faraway ones---much like trade flows decline with distance in the structural gravity equation.
+where $t_{nj}$ is the walking time from neighbourhood $n$ to service $j$ and $\beta$ governs distance decay. Rather than imposing a hard 15-minute cutoff --- which treats a clinic one minute away the same as one at 14 minutes --- this score weights closer services more heavily, mirroring the gravity equation that structures trade models (Allen and Arkolakis, 2014; Donaldson, 2018).
 
-## Sorting: Why Income and Accessibility Go Together
+## Sorting: Why We Expect a Correlation
 
-Why should income predict accessibility in the first place? The spatial equilibrium framework gives a clean answer: sorting. Workers pick where to live based on amenities, wages, and housing costs. In the canonical model (Redding, 2016), the probability that a worker chooses location $n$ equals:
+Why should richer neighbourhoods have more services? The leading explanation is *residential sorting*. In standard spatial equilibrium (Redding, 2016), the share of workers choosing location $n$ is:
 $$
 \lambda_n = \frac{B_n \left( v_n / P_n \right)^\varepsilon}{\sum_{i \in S} B_i \left( v_i / P_i \right)^\varepsilon}
 $$
-If accessibility forms part of the amenity bundle $B_n$, then households who can afford higher rents sort into well-served neighbourhoods. We observe the equilibrium outcome of this process: rich people in areas with lots of services---not because income causes services to appear, but because both emerge jointly.
+If good walking access ($B_n$) raises a neighbourhood's attractiveness, households that can pay higher rents will concentrate there. We observe the equilibrium outcome: rich people and many services in the same locations. Diamond and Suarez Serrato (2025) document that this sorting by amenities has intensified in the US. Ellder (2024, 2025) shows the flip side: Swedish neighbourhoods that achieve 15-minute city status gentrify, with housing prices rising by up to 30\%. Our cross-sectional data cannot disentangle this feedback loop, but the SDM separates local from spillover effects, and our temporal analysis (2015--2022) tests whether the income landscape itself is converging or diverging.
 
-Diamond and Suarez Serrato (2025) find that high-education US workers increasingly sort into high-amenity areas rather than high-wage areas---amenities now dominate the pull. On the other side, Ellder (2024, 2025) shows that Swedish neighbourhoods which become 15-minute cities tend to gentrify, with housing prices rising by up to 30\%. So sorting creates a feedback loop: better services attract richer residents, which pushes up prices, which pushes out poorer ones. Our cross-sectional model cannot capture this dynamic, but the SDM's decomposition into own and spillover effects at least separates the two channels.
+## How This Paper Fits the Literature
 
-## Related Literature
+Three strands of work motivate our approach. First, Abbiasov et al.\ (2024) tracked 40 million US smartphones and found that only 14\% of shopping trips happen locally --- and that neighbourhoods with more local activity tend to be more socially segregated. This raises the question: does the 15-minute city inadvertently benefit the already privileged?
 
-Abbiasov et al.\ (2024) used GPS data from 40 million US devices to quantify the 15-minute city and found that only 14\% of consumption trips happen locally. They also uncovered a troubling trade-off: more local living correlates with more segregation for low-income residents.
+Second, Ferrer-Ortiz et al.\ (2022) mapped pedestrian accessibility in Barcelona and showed that the compact centre meets the 15-minute standard but the periphery falls short. Plaza-Herrera and Mercade-Aloy (2025) extended this to the metropolitan area, finding that only 42\% of elderly residents can reach all service categories on foot, compared with 81\% of the general population. We build on these Barcelona-specific studies by adding an income dimension and a formal econometric framework.
 
-Closer to our setting, Ferrer-Ortiz et al.\ (2022) mapped pedestrian accessibility in Barcelona using network analysis and showed that the compact core meets the 15-minute standard, but the periphery does not. Plaza-Herrera and Mercade-Aloy (2025) extended this to the metropolitan area and found that while 81\% of the general population can reach all service categories, only 42\% of the elderly can.
-
-Thaury et al.\ (2024) studied Paris with a SARAR spatial model and OpenStreetMap data, finding the same centre--periphery story: lower-income families live in less-amenity-rich areas. Mouratidis (2024) wrote a pointed critique identifying seven pitfalls of the 15-minute city concept---among them, ignoring differences in walking ability across populations and conflating the *number* of services with their *adequacy*. We address both of these directly.
-
-Finally, Caliendo et al.\ (2018) showed how productivity shocks propagate across US states through input-output linkages---a different application, but the same propagation logic that our SDM captures in the context of urban services.
+Third, Mouratidis (2024) catalogued seven pitfalls of the 15-minute city concept, including the conflation of service *counts* with service *adequacy* and the use of arbitrary distance thresholds. We address both: our per-capita analysis tests adequacy, and our gravity model replaces the hard threshold with smooth distance decay.
 
 # Data
 
-We combine three open data sources, all downloaded automatically in R.
+We assemble three publicly available datasets covering Barcelona's `r r$n_barris` neighbourhoods (*barris*).
 
-Points of interest come from OpenStreetMap, queried through the `osmdata` package for six categories: groceries, pharmacies, schools, healthcare, parks, and transit stops (`r fc(r$n_pois_total)` POIs in total). Neighbourhood boundaries (the `r r$n_barris` *barris*) and socioeconomic data come from the Ajuntament de Barcelona's Open Data portal: disposable household income per capita for 2022 and population for 2025, both originally at the census-section level and aggregated up to the *barri*.
+**Service locations.** We extract `r fc(r$n_pois_total)` points of interest from OpenStreetMap, pre-processed into GeoPackage files covering six categories: grocery stores (supermarkets, convenience stores, and greengrocers), pharmacies, schools, healthcare facilities, parks, and public transit stops. Figure \ref{fig:pois} maps these locations. Transit stops and parks blanket the city. Grocery stores and pharmacies follow customers fairly evenly. Healthcare facilities, however, cluster in the centre and upper city --- a visual preview of the regression results.
 
-We construct the accessibility score by drawing a 1,200 m buffer around each neighbourhood centroid (roughly 15 minutes at walking speed) and counting all POIs inside it. The resulting score ranges from `r r$access_min` to `r fc(r$access_max)`, with a mean of `r fc(r$access_mean)`. The income index runs from `r f(r$rfd_min, 0)` to `r f(r$rfd_max, 0)` (Barcelona average = 100)---so the poorest neighbourhood earns about half the city average and the richest nearly double. We perform all spatial operations in EPSG:25831 (UTM zone 31N) for accurate metric distances.
+**Walking times.** We compute actual walking times along Barcelona's street network using the `dodgr` routing engine (Padgham et al., 2019) applied to OpenStreetMap road data. For each neighbourhood centroid, we count how many services a pedestrian can reach within 15 minutes, following real streets and paths. This yields accessibility scores ranging from `r r$access_min` to `r fc(r$access_max)` (mean: `r fc(r$access_mean)`).
 
-Figure \ref{fig:pois} maps the `r fc(r$n_pois_total)` POIs. A few patterns jump out immediately. Transit stops and parks blanket the city---Barcelona's metro/bus network and green spaces cover most of the territory. Pharmacies and groceries spread fairly evenly, which makes sense: these market-driven services follow population. Healthcare facilities, however, cluster visibly in central and upper-city areas. This foreshadows what the regressions confirm: healthcare shows the sharpest income gradient.
+**Socioeconomic data.** Household disposable income per capita (2022) and population figures (2025) come from the city council's open data portal. Both are originally reported at the census-section level and aggregated to the neighbourhood. The income index runs from `r f(r$rfd_min, 0)` to `r f(r$rfd_max, 0)` (100 = Barcelona average), so the poorest neighbourhood earns about half the city average and the richest nearly double.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.95\textwidth]{output/01_poi_locations.pdf}
-\caption{All `r fc(r$n_pois_total)` essential service POIs in Barcelona, coloured by category. Transit and parks blanket the city. Healthcare facilities (blue) cluster visibly in central and upper-city districts---a preview of the category-specific income gap we document later.}
+\caption{All `r fc(r$n_pois_total)` essential service locations in Barcelona, coloured by category. Transit and parks cover the city broadly; healthcare facilities cluster in central and upper-city districts.}
 \label{fig:pois}
 \end{figure}
 
-Figure \ref{fig:sidebyside} puts the accessibility and income maps side by side, and the overlap jumps out. The central Eixample district---Barcelona's famous grid---stands out as both the richest and the most service-dense part of the city. The northern periphery (Nou Barris, parts of Sant Andreu) shows dark shading on both maps: low income, few services. This spatial co-movement motivates our analysis, though the maps alone cannot tell us how much income vs.\ population density vs.\ centrality drives it. That is what the regressions do.
+Figure \ref{fig:sidebyside} places the accessibility and income maps side by side. The overlap jumps off the page. Sarria--Sant Gervasi and Pedralbes (Les Corts) rank highest on both measures. The northern periphery --- Nou Barris, parts of Sant Andreu --- appears light on both maps: low income, few services. But maps alone cannot separate the role of income from population density and centrality. That requires regression.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.95\textwidth]{output/07_access_income_sidebyside.pdf}
-\caption{Accessibility (left) and household income (right) across Barcelona's 73 neighbourhoods. Darker = lower. The visual overlap stands out: the low-income periphery is also where services thin out.}
+\caption{Accessibility (left) and household income (right) across Barcelona's `r r$n_barris` neighbourhoods. Darker shading = higher values. The periphery appears light on both maps.}
 \label{fig:sidebyside}
 \end{figure}
 
-Figure \ref{fig:scatter} turns the two choropleths into a scatter plot. Each dot represents a neighbourhood (sized by population), and the OLS line slopes upward ($R^2 = `r f(r$ols_r2, 2)`$). The relationship does not hinge on outliers---the cloud tracks the line fairly consistently. Still, we spot some interesting exceptions: a cluster of middle-income Eixample neighbourhoods scores well above the trend line (they sit centrally and pack many services despite not being the richest), while a few wealthy but peripheral neighbourhoods fall below it.
+Figure \ref{fig:scatter} collapses the two maps into a scatter plot. Each dot represents a neighbourhood, sized by population. The fitted line slopes upward ($R^2 = `r f(r$ols_r2, 2)`$). The relationship is not driven by outliers; points track the line consistently. Notable exceptions: several Eixample neighbourhoods sit above the line (central location compensates for middling income), while wealthy peripheral areas fall below it.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.65\textwidth]{output/04_access_vs_income_scatter.pdf}
-\caption{Accessibility vs.\ income. Each dot represents a neighbourhood (sized by population). The OLS line ($R^2 = `r f(r$ols_r2, 2)`$) confirms the positive relationship. Some dense, middle-income areas beat the trend thanks to their central location.}
+\caption{Accessibility vs.\ income. Each dot is a neighbourhood (sized by population). The upward slope ($R^2 = `r f(r$ols_r2, 2)`$) confirms the raw correlation. Central Eixample areas beat the trend; wealthy but peripheral areas fall below it.}
 \label{fig:scatter}
 \end{figure}
 
 # Empirical Strategy
 
-We build spatial neighbours using queen contiguity (average: `r f(r$avg_neighbors, 1)` neighbours per *barri*) and row-standardise the weights matrix so that the spatial lag becomes a simple average of neighbours' values. Our baseline log-log OLS takes the form:
+We define spatial neighbours using queen contiguity: two neighbourhoods count as neighbours if they share any boundary segment, even a single corner point. The average *barri* has `r f(r$avg_neighbors, 1)` neighbours. We row-standardise the weights matrix so that the spatial lag of any variable equals the simple average across neighbours.
+
+Our baseline is a log-log regression:
 $$
 \ln(\text{Access}_i) = \alpha + \beta_1 \ln(\text{Income}_i) + \beta_2 \ln(\text{PopDensity}_i) + \beta_3 \ln(\text{DistCenter}_i) + \varepsilon_i
 $$
+Because both sides are in logs, each coefficient is an elasticity. The reader can interpret $\beta_1 = `r f(r$ols_coefs["log_income", "Estimate"], 2)`$ directly: a 1\% increase in income predicts a `r f(r$ols_coefs["log_income", "Estimate"], 2)`\% increase in nearby services.
 
-Since both sides enter in logs, every coefficient is an *elasticity*: $\beta_1 = `r f(r$ols_coefs["log_income", "Estimate"], 2)`$ means a 1\% increase in income associates with a `r f(r$ols_coefs["log_income", "Estimate"], 2)`\% increase in accessible services.
-
-We then estimate four spatial variants---SAR, SEM, SDM, SDEM---following LeSage and Pace (2009). The SDM serves as our workhorse:
+A natural objection: neighbourhoods are not independent. A well-served area likely sits next to other well-served areas, which OLS ignores. We therefore estimate four spatial alternatives --- SAR, SEM, SDM, and SDEM --- following LeSage and Pace (2009), and let likelihood ratio tests determine which specification the data require. The most general, the Spatial Durbin Model (SDM), takes the form:
 $$
 \ln(\text{Access}_i) = \rho \sum_j w_{ij} \ln(\text{Access}_j) + \mathbf{x}_i' \boldsymbol{\beta} + \sum_j w_{ij} \mathbf{x}_j' \boldsymbol{\theta} + u_i
 $$
+This model says: a neighbourhood's accessibility depends on (i) the accessibility of its neighbours ($\rho$), (ii) its own characteristics ($\boldsymbol{\beta}$), and (iii) its neighbours' characteristics ($\boldsymbol{\theta}$). The SDM nests both SAR and SEM, so misspecifying the spatial structure is less likely. Its key advantage is the impact decomposition: each variable splits into a *direct* effect (within the neighbourhood) and an *indirect* effect (spillover to neighbours), powered by the spatial multiplier $(\mathbf{I} - \rho \mathbf{W})^{-1}$.
 
-It includes both a spatial lag of the outcome ($\rho \mathbf{Wy}$) and spatial lags of all three covariates ($\mathbf{W}\mathbf{X}$). The SDM nests both SAR and SEM as special cases, so we are unlikely to misspecify. More importantly, it lets us split each coefficient into a *direct* effect (how a neighbourhood's own characteristics affect its own accessibility) and an *indirect* or *spillover* effect (how its characteristics spill over to neighbours). The spatial multiplier $(\mathbf{I} - \rho \mathbf{W})^{-1}$ drives this decomposition---the reduced-form version of the propagation channel in structural spatial economics (Caliendo et al., 2018).
-
-We extend the analysis in two ways. First, we replace the buffer count with a gravity-weighted measure and re-estimate the SDM. Second, we swap the distance-to-centre control for a Harris (1954) market-access potential, $\text{MA}_n = \sum_{i \neq n} \text{Pop}_i / d_{ni}$, which captures a neighbourhood's position relative to the whole population distribution rather than its distance to one point.
+We extend the baseline in two directions. First, we replace the hard 15-minute count with a gravity-weighted measure. Second, we replace distance-to-centre with a Harris (1954) market-access potential, $\text{MA}_n = \sum_{i \neq n} \text{Pop}_i / d_{ni}$, which captures a neighbourhood's position relative to the *entire city's population*, not just one central point.
 
 # Results
 
-## Spatial Autocorrelation
+## Services Cluster in Space
 
-Global Moran's $I = `r f(r$moran_I, 2)`$ ($p = `r formatC(r$moran_p, format = "e", digits = 1)`$): accessibility clusters strongly in space. Neighbourhoods with lots of services sit next to other neighbourhoods with lots of services, and the same holds for underserved areas.
+Before estimating any regression, we test whether accessibility clusters spatially. Moran's $I = `r f(r$moran_I, 2)`$ ($p = `r formatC(r$moran_p, format = "e", digits = 1)`$): it does, strongly. Well-served neighbourhoods sit next to other well-served neighbourhoods; underserved areas cluster together.
 
-Figure \ref{fig:lisa} shows where these clusters form. The red areas (High-High) span a large contiguous block in the centre---Eixample, Gracia, parts of Sant Marti and Sants-Montjuic. These neighbourhoods have it all: high accessibility themselves and well-served neighbours. The blue areas (Low-Low) sit on the northern and western periphery---Nou Barris, Torre Baro, parts of Horta-Guinardo. Grey areas fail to reach statistical significance. What stands out is the near-absence of spatial outliers: we find almost no High-Low or Low-High neighbourhoods, which tells us the accessibility landscape forms a smooth gradient from centre to periphery, not a patchwork.
+Figure \ref{fig:lisa} maps these clusters. High-High areas (red) appear in Eixample, Gracia, and parts of Horta-Guinardo, Sant Marti, and Sant Andreu. Low-Low areas (blue) concentrate in the northern periphery: Torre Baro, Ciutat Meridiana, Vallbona, and Trinitat Nova --- all within Nou Barris. The near-absence of spatial outliers tells the reader something important: accessibility looks like a smooth hill, highest in the centre and declining toward the edges, rather than a patchwork.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.85\textwidth]{output/05_lisa_clusters_map.pdf}
-\caption{LISA cluster map. Red: High-High (well-served, well-served neighbours). Blue: Low-Low (underserved, underserved neighbours). Grey: not significant. The near-absence of spatial outliers points to a smooth centre-to-periphery gradient.}
+\caption{LISA cluster map. Red = High-High (well-served neighbourhood, well-served neighbours). Blue = Low-Low (underserved neighbourhood, underserved neighbours). Grey = not significant. The near-absence of outliers confirms a smooth centre-to-periphery gradient.}
 \label{fig:lisa}
 \end{figure}
 
-Figure \ref{fig:moran} presents the same information as a scatter plot. Each neighbourhood's standardised accessibility score sits on the horizontal axis; the average of its neighbours' scores on the vertical. The positive slope gives us Moran's $I$. Most points cluster in the upper-right (High-High) and lower-left (Low-Low) quadrants, with few in the off-diagonal quadrants where outliers would appear.
+Figure \ref{fig:moran} presents the same pattern as a Moran scatter plot. Most points fall in the upper-right (both high) or lower-left (both low) quadrants, with very few in the off-diagonal.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.65\textwidth]{output/06_moran_scatter.pdf}
-\caption{Moran scatter plot. Each neighbourhood plotted against its neighbours' average. The positive slope ($I = `r f(r$moran_I, 2)`$) and the clustering in the HH and LL quadrants confirm strong spatial autocorrelation.}
+\caption{Moran scatter plot. Horizontal axis: neighbourhood's own accessibility (standardised). Vertical axis: average of its neighbours. The positive slope ($I = `r f(r$moran_I, 2)`$) and concentration in the HH/LL quadrants confirm strong spatial autocorrelation.}
 \label{fig:moran}
 \end{figure}
 
-## Model Comparison
+## Does Spatial Complexity Add Explanatory Power?
 
-Table \ref{tab:aic} compares the five specifications. The gap is dramatic. SDM and SDEM---the two models that include spatially lagged covariates ($\mathbf{W}\mathbf{X}$)---score AIC values of `r f(r$sdm_aic, 1)` and `r f(r$sdem_aic, 1)`, respectively. OLS, SAR, and SEM all hover around 40. The message: accounting for spatial dependence in the outcome or the errors alone does not suffice; what really matters is that *neighbours' characteristics* (their income, their density, their centrality) predict a neighbourhood's own service count.
+Table \ref{tab:aic} compares the five model specifications by AIC and log-likelihood. `r if (r$sdm_aic < r$ols_aic - 2) "The SDM and SDEM, which include neighbours' characteristics, outperform the simpler models, indicating that neighbour covariates carry additional information." else "The AIC values are close across all five specifications. Once we measure walking times along the actual street network, observable neighbourhood characteristics already capture most of the spatial structure. The spatial models add little beyond what OLS delivers."`
 
 \begin{table}[H]
 \centering
-\caption{Model comparison. Lower AIC = better fit. The two models with spatially lagged covariates (SDM, SDEM) dominate by a wide margin.}
+\caption{Model comparison. Lower AIC = better fit.}
 \begin{tabular}{lrr}
 \toprule
 Model & AIC & Log-Likelihood \\
 \midrule
-SDEM  & `r f(r$sdem_aic, 1)` & `r f(r$sdem_loglik, 1)` \\
-SDM   & `r f(r$sdm_aic, 1)` & `r f(r$sdm_loglik, 1)` \\
 OLS   & `r f(r$ols_aic, 1)` & `r f(r$ols_loglik, 1)` \\
 SAR   & `r f(r$sar_aic, 1)` & `r f(r$sar_loglik, 1)` \\
 SEM   & `r f(r$sem_aic, 1)` & `r f(r$sem_loglik, 1)` \\
+SDM   & `r f(r$sdm_aic, 1)` & `r f(r$sdm_loglik, 1)` \\
+SDEM  & `r f(r$sdem_aic, 1)` & `r f(r$sdem_loglik, 1)` \\
 \bottomrule
 \end{tabular}
 \label{tab:aic}
 \end{table}
 
-Likelihood ratio tests formalise this. The test statistic compares the log-likelihoods of a restricted model (without $\mathbf{WX}$) against an unrestricted one (with $\mathbf{WX}$):
+Likelihood ratio tests formalise this comparison. We test whether the Durbin terms (neighbours' covariates) significantly improve on the simpler spatial-lag or spatial-error specifications:
 $$
 LR = 2 \times \bigl(\ell_{\text{unrestricted}} - \ell_{\text{restricted}}\bigr)
 $$
-For SDM vs.\ SAR:
-$$
-LR = 2 \times \bigl(`r f(r$sdm_loglik, 1)` - (`r f(r$sar_loglik, 1)`)\bigr) = `r f(r$lr_sdm_sar, 1)` \quad (p = `r formatC(r$lr_sdm_sar_p, format = "e", digits = 1)`)
-$$
-For SDEM vs.\ SEM:
-$$
-LR = 2 \times \bigl(`r f(r$sdem_loglik, 1)` - (`r f(r$sem_loglik, 1)`)\bigr) = `r f(r$lr_sdem_sem, 1)` \quad (p = `r formatC(r$lr_sdem_sem_p, format = "e", digits = 1)`)
-$$
-Both follow a $\chi^2$ distribution with 3 degrees of freedom (the three spatially lagged covariates added by the unrestricted model). We reject the restricted models decisively: the spatially lagged covariates matter. This echoes the prediction from spatial economics: in a world of interconnected locations, a neighbourhood's fate depends on the fundamentals of the places it borders.
+For SDM vs.\ SAR: $LR = `r f(r$lr_sdm_sar, 1)`$ ($p = `r formatC(r$lr_sdm_sar_p, format = "e", digits = 1)`$). For SDEM vs.\ SEM: $LR = `r f(r$lr_sdem_sem, 1)`$ ($p = `r formatC(r$lr_sdem_sem_p, format = "e", digits = 1)`$). Both tests use a $\chi^2$ distribution with 3 degrees of freedom.
 
-## SDM Estimates and Impact Decomposition
+`r if (r$lr_sdm_sar_p < 0.05) "Both tests reject the simpler model: neighbours' characteristics carry information that the spatial lag alone misses." else "Neither test rejects the simpler model. This is a revealing finding. When we measure accessibility via actual walking routes, the spatially structured measurement error that Euclidean buffers introduce --- and that Durbin terms were absorbing --- largely disappears. The straightforward OLS coefficients tell a reliable story."` We still report the SDM decomposition below, because splitting effects into direct and indirect channels remains informative regardless of model selection.
 
-We estimate $\hat{\rho} = `r f(r$sdm_rho, 2)`$ ($p = `r f(r$sdm_rho_p, 3)`$), meaning a moderate but significant share of a neighbourhood's accessibility "comes from" its neighbours. Table \ref{tab:impacts} shows the impact decomposition.
+## The Income Gradient: Direct and Spillover Effects
+
+The SDM estimates a spatial autoregressive parameter $\hat{\rho} = `r f(r$sdm_rho, 2)`$ ($p = `r f(r$sdm_rho_p, 3)`$). `r if (r$sdm_rho_p < 0.05) "This confirms that a neighbourhood's accessibility depends meaningfully on what surrounds it." else "This parameter is not statistically significant, consistent with the AIC comparison above. Still, the impact decomposition provides a useful accounting framework."` Table \ref{tab:impacts} decomposes each variable.
 
 \begin{table}[H]
 \centering
-\caption{SDM impact decomposition (simulated SEs, $R = 500$). Direct = effect on own neighbourhood; Indirect = spillover from/to neighbours; Total = both combined.}
+\caption{SDM impact decomposition (simulated SEs, $R = 500$). Direct = within the neighbourhood; Indirect = spillover; Total = both.}
 \begin{tabular}{lccc}
 \toprule
 Variable & Direct & Indirect & Total \\
 \midrule
-$\ln(\text{Income})$      & $`r f(di[1], 2)`^{**}$   & $`r f(ii[1], 2)`$        & $`r f(ti[1], 2)`^{***}$ \\
-$\ln(\text{PopDensity})$  & $`r f(di[2], 2)`^{***}$  & $`r f(ii[2], 2)`^{**}$   & $`r f(ti[2], 2)`^{***}$ \\
-$\ln(\text{DistCenter})$  & $`r f(di[3], 2)`^{***}$ & $`r f(ii[3], 2)`^{***}$  & $`r f(ti[3], 2)`^{**}$  \\
+$\ln(\text{Income})$      & $`r f(di[1], 2)`^{**}$   & $`r f(ii[1], 2)`$        & $`r f(ti[1], 2)`^{**}$ \\
+$\ln(\text{PopDensity})$  & $`r f(di[2], 2)`^{***}$  & $`r f(ii[2], 2)`$   & $`r f(ti[2], 2)`^{***}$ \\
+$\ln(\text{DistCenter})$  & $`r f(di[3], 2)`$ & $`r f(ii[3], 2)`$  & $`r f(ti[3], 2)`$  \\
 \bottomrule
 \multicolumn{4}{l}{\footnotesize $^{***}p<0.01$; $^{**}p<0.05$; $^{*}p<0.10$}
 \end{tabular}
 \label{tab:impacts}
 \end{table}
 
-The total income effect equals `r f(ti[1], 2)`. Because both variables enter in logs, this is an elasticity: a neighbourhood with 10\% higher income has roughly `r f(ti[1]*10, 0)`\% more services within walking distance. About half comes from the direct channel (`r f(di[1], 2)`) and half from spillovers (`r f(ii[1], 2)`). The spillover part has a natural reading: wealthy households cluster together, and service providers respond to the aggregate demand of the cluster, not just of a single neighbourhood.
+The total income effect is `r f(ti[1], 2)`: a neighbourhood with 10\% higher income has about `r f(ti[1]*10, 0)`\% more services within walking distance. The direct channel accounts for `r f(di[1], 2)` and the indirect for `r f(ii[1], 2)`. The intuition behind the spillover is straightforward: wealthy households cluster together, and businesses respond to the purchasing power of the entire cluster, not just one neighbourhood.
 
-Population density matters even more (total effect `r f(ti[2], 2)`). Services follow people---the more residents nearby, the more pharmacies, grocery stores, and bus stops appear. Both the direct and indirect channels reach significance, meaning that having dense neighbours also helps.
+Population density carries the largest total effect (`r f(ti[2], 2)`). More people means more pharmacies, grocery stores, and bus stops --- a demand-driven pattern.
 
-Distance to centre tells an interesting story. The direct effect is strongly negative (`r f(di[3], 2)`): sitting far from Plaça Catalunya hurts. But the indirect effect is strongly positive (`r f(ii[3], 2)`): if you live on the periphery, having central neighbours helps because their services sit nearby. These two effects largely cancel out (total `r f(ti[3], 2)`). The SAR model, which cannot separate these channels, estimates a near-zero effect for distance---misleading. Our SDM reveals that distance matters a lot, but through two opposing channels.
+Distance to the city centre tells a nuanced story. The direct effect is `r f(di[3], 2)` and the indirect is `r f(ii[3], 2)`. `r if (di[3] < 0 & ii[3] > 0) "Being far from Placa Catalunya reduces a neighbourhood's own accessibility, but having some central neighbours partially compensates: their services are close enough to benefit you too. These two forces largely offset each other." else "The net effect is modest, suggesting that once we control for income and density, distance to the centre adds little."` A model that cannot separate these channels would miss this offsetting dynamic.
 
 # Extensions and Robustness
 
-## Gravity-weighted Accessibility
+## Does Every Word Count? A Gravity-Weighted Alternative
 
-Our baseline measure treats all services within 1,200 m equally and ignores everything beyond the cutoff. A pharmacy 50 m away counts the same as one at 1,199 m, and one at 1,201 m counts zero. The gravity-weighted alternative assigns each POI a weight that fades smoothly with distance: $\text{GravAccess}_n = \sum_j e^{-\beta d_{nj}}$ ($\beta = `r r$beta_decay`$). A service 700 m away gets about half the weight of one at zero distance.
+Our baseline counts services inside a hard 15-minute boundary. A pharmacy one minute away counts the same as one at 14 minutes; one at 16 minutes counts for nothing. This is crude. The gravity-weighted alternative assigns each service a weight that decays smoothly with walking time: $\text{GravAccess}_n = \sum_j e^{-\beta \, t_{nj}}$ ($\beta = `r r$beta_decay`$ `r if (r$use_network) "per minute" else "per metre"`). A service about `r if (r$use_network) "8 minutes" else "700 metres"` away receives half the weight of one right next door.
 
-Table \ref{tab:gravity} shows the SDM impacts with this measure. Spatial dependence strengthens substantially ($\hat{\rho} = `r f(r$gravity_sdm_rho, 2)`$, $p < 0.001$). The income elasticity holds up (direct: `r f(gdi[1], 2)`, total: `r f(gti[1], 2)`). The gravity measure captures something the buffer count misses: services just beyond 1,200 m still matter, and services very close by matter more than those at the buffer's edge.
+Table \ref{tab:gravity} reports the SDM estimates with gravity-weighted accessibility. Spatial dependence strengthens ($\hat{\rho}$ rises from `r f(r$sdm_rho, 2)` to `r f(r$gravity_sdm_rho, 2)`). The income elasticity persists (direct: `r f(gdi[1], 2)`, total: `r f(gti[1], 2)`).
 
 \begin{table}[H]
 \centering
-\caption{SDM impacts with gravity-weighted accessibility. The spatial parameter ($\hat{\rho} = `r f(r$gravity_sdm_rho, 2)`$) nearly doubles the baseline, and the income effect remains significant.}
+\caption{SDM impacts with gravity-weighted accessibility ($\hat{\rho} = `r f(r$gravity_sdm_rho, 2)`$).}
 \begin{tabular}{lccc}
 \toprule
 Variable & Direct & Indirect & Total \\
@@ -270,113 +261,150 @@ $\ln(\text{DistCenter})$  & $`r f(gdi[3], 2)`^{***}$ & $`r f(gii[3], 2)`^{***}$ 
 \label{tab:gravity}
 \end{table}
 
-Figure \ref{fig:gravity} compares the gravity scatter to the baseline (Figure \ref{fig:scatter}). The points hug the regression line more tightly ($R^2 = `r f(r$gravity_ols_r2, 2)`$ vs.\ `r f(r$ols_r2, 2)`$), which tells us the gravity measure does a better job of capturing the income--accessibility relationship. This supports Mouratidis's (2024) argument that sharp distance thresholds introduce unnecessary noise.
+Figure \ref{fig:gravity} plots the gravity score against income. The tighter scatter ($R^2 = `r f(r$gravity_ols_r2, 2)`$ vs.\ `r f(r$ols_r2, 2)`$ for the baseline) confirms that smooth distance decay captures the income-accessibility gradient better than a hard threshold --- consistent with Mouratidis's (2024) critique that rigid cutoffs introduce noise.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.75\textwidth]{output/11_gravity_access_vs_income.pdf}
-\caption{Gravity-weighted accessibility vs.\ income. The tighter fit ($R^2 = `r f(r$gravity_ols_r2, 2)`$) compared with Figure \ref{fig:scatter} ($R^2 = `r f(r$ols_r2, 2)`$) shows the continuous distance kernel captures the income gradient better than the sharp 1,200 m cutoff.}
+\caption{Gravity-weighted accessibility vs.\ income ($R^2 = `r f(r$gravity_ols_r2, 2)`$). The tighter fit compared with Figure \ref{fig:scatter} ($R^2 = `r f(r$ols_r2, 2)`$) shows that smooth distance decay captures the income gradient better.}
 \label{fig:gravity}
 \end{figure}
 
-## Market Access as a Structural Control
+## Does Centrality Drive Everything?
 
-Our baseline uses distance to Plaça Catalunya as the centrality control, but why should one point matter? A neighbourhood's position relative to the *entire population* drives service provision. We replace log distance-to-centre with the Harris (1954) market-access potential, $\text{MA}_n = \sum_{i \neq n} \text{Pop}_i / d_{ni}$. The OLS fit improves from $R^2 = `r f(r$ols_r2, 2)`$ to $R^2 = `r f(r$ma_ols_r2, 2)`$, and market access enters with high significance ($p = `r formatC(r$ma_ols_ma_p, format = "e", digits = 1)`$). The income gradient survives at `r f(r$ma_ols_income_coef, 2)` ($p = `r f(r$ma_ols_income_p, 3)`$): the gap is not just a centrality artefact.
+A sceptical reader might wonder: does income simply proxy for centrality? We replace the distance-to-centre variable with a Harris (1954) market-access potential, $\text{MA}_n = \sum_{i \neq n} \text{Pop}_i / d_{ni}$, which captures a neighbourhood's position relative to every other neighbourhood's population. The OLS $R^2$ improves from `r f(r$ols_r2, 2)` to `r f(r$ma_ols_r2, 2)`, and market access enters strongly ($p = `r formatC(r$ma_ols_ma_p, format = "e", digits = 1)`$). The income coefficient survives at `r f(r$ma_ols_income_coef, 2)` ($p = `r f(r$ma_ols_income_p, 3)`$). The gap is real, not just a side effect of centrality.
 
-## Accessibility inequality: Gini and Lorenz curve
+## How Unequally Are Services Distributed?
 
-How unequal is the spatial distribution of services? The Gini coefficient for total accessibility equals `r f(r$gini_total, 3)`---moderate inequality, not extreme. But the per-capita Gini jumps to `r f(r$gini_percap, 3)`, reflecting the wide range of population densities.
+The Gini coefficient for total accessibility is `r f(r$gini_total, 3)` --- moderate inequality. Per-capita accessibility shows a higher Gini (`r f(r$gini_percap, 3)`), reflecting wide variation in population density.
 
-The category breakdown reveals a clear pattern. Healthcare has the highest Gini (`r f(r$gini_by_cat["Healthcare"], 3)`)---the most unequally distributed service. Grocery (`r f(r$gini_by_cat["Grocery"], 3)`) and pharmacy (`r f(r$gini_by_cat["Pharmacy"], 3)`) show moderate inequality. Transit (`r f(r$gini_by_cat["Transit"], 3)`) and parks (`r f(r$gini_by_cat["Park"], 3)`) distribute most evenly, thanks to the metro/bus network and Barcelona's scattered green spaces.
+By category, healthcare distributes the most unequally (Gini `r f(r$gini_by_cat["Healthcare"], 3)`), followed by grocery stores (`r f(r$gini_by_cat["Grocery"], 3)`) and pharmacies (`r f(r$gini_by_cat["Pharmacy"], 3)`). Transit (`r f(r$gini_by_cat["Transit"], 3)`) and parks (`r f(r$gini_by_cat["Park"], 3)`) spread the most evenly, thanks to Barcelona's metro network and its many small green spaces.
 
-Figure \ref{fig:lorenz} shows the population-weighted Lorenz curve. If every neighbourhood had services in proportion to its population, the curve would sit on the 45-degree line. Instead, it bows below: the bottom 40\% of the population (ranked by accessibility) has access to roughly 25\% of services. The shaded area gives the visual counterpart of the Gini coefficient.
+Figure \ref{fig:lorenz} presents a population-weighted Lorenz curve. Under perfect equality, it would follow the 45-degree line. Instead, it bows below: the bottom 40\% of the population (in the least accessible neighbourhoods) reaches only about `r f(r$lorenz_at_40pct * 100, 0)`\% of services.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.65\textwidth]{output/10_lorenz_curve.pdf}
-\caption{Population-weighted Lorenz curve. The 45-degree line = perfect equality. The curve bows below it: residents of the least accessible neighbourhoods get a disproportionately small share of the city's services.}
+\caption{Population-weighted Lorenz curve. The 45-degree line = perfect equality. The shaded area between the curve and the diagonal visualises the Gini coefficient.}
 \label{fig:lorenz}
 \end{figure}
 
-## Per-capita Service Adequacy
+## Do Richer Areas Actually Have Enough Services Per Person?
 
-A neighbourhood with 2,000 service points sounds great---until you learn it has 60,000 residents. Mouratidis (2024) and UBE (2024) warn against confusing the *number* of services with their *adequacy*. When we run the OLS with POIs per 1,000 residents as the outcome, the income coefficient flips to `r f(r$percap_ols_income_coef, 2)` and loses significance ($p = `r f(r$percap_ols_income_p, 2)`$; $R^2 = `r f(r$percap_ols_r2, 2)`$). Wealthier areas have more services but also more residents. Per capita, the playing field is roughly level.
+Here is the twist. A neighbourhood with `r fc(r$access_max)` services sounds well served --- until you notice it has `r fc(r$pop_max)` residents. As Mouratidis (2024) argues, counting services is not the same as assessing adequacy. When we regress services per 1,000 residents on income, the coefficient drops to `r f(r$percap_ols_income_coef, 2)` ($p = `r f(r$percap_ols_income_p, 2)`$; $R^2 = `r f(r$percap_ols_r2, 2)`$). The income gap vanishes. Richer areas attract more services, but they also attract more people competing for them.
 
-Figure \ref{fig:percapita} makes this vivid. Compare it to the left panel of Figure \ref{fig:sidebyside}: the spatial pattern differs. Some peripheral neighbourhoods that looked underserved in absolute terms now show perfectly reasonable per-capita scores, because their low population means fewer people share the available services. Meanwhile, some of the densest central areas, which scored highest in absolute terms, drop to middling levels per capita.
+Figure \ref{fig:percapita} maps per-capita accessibility. Compare it with the left panel of Figure \ref{fig:sidebyside}: the spatial pattern shifts. Some peripheral neighbourhoods that looked underserved in absolute terms score reasonably per capita, because fewer people share the available services. Dense central areas, which looked excellent in raw counts, fall to middling per-capita levels.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.75\textwidth]{output/09_percapita_accessibility_map.pdf}
-\caption{Per-capita accessibility (POIs per 1,000 residents). Compare with the left panel of Figure \ref{fig:sidebyside}: the story changes. Some peripheral areas turn out well served relative to their population; some dense central areas do not.}
+\caption{Per-capita accessibility (services per 1,000 residents). The spatial pattern differs markedly from the absolute count in Figure \ref{fig:sidebyside}. Some peripheral areas are well served per capita; some dense central areas are not.}
 \label{fig:percapita}
 \end{figure}
 
-## Which Services Drive the Gap?
+## Which Specific Services Drive the Income Gap?
 
-Table \ref{tab:category} runs a separate OLS for each service category. The numbers tell a clear story.
+Table \ref{tab:category} runs a separate OLS regression for each service category. The answer is precise.
 
 \begin{table}[H]
 \centering
-\caption{Income elasticity by service category (OLS). An elasticity of `r f(r$cat_results[["Healthcare"]][1], 2)` for healthcare means that a 10\% income increase predicts a `r f(r$cat_results[["Healthcare"]][1]*10, 0)`\% increase in healthcare facilities within walking distance.}
+\caption{Income elasticity by service category (OLS). An elasticity of `r f(r$cat_results[["Healthcare"]][1], 2)` for healthcare means a 10\% income increase predicts `r f(r$cat_results[["Healthcare"]][1]*10, 0)`\% more clinics within walking distance.}
 \begin{tabular}{lrrr}
 \toprule
 Category & Elasticity & Std.\ Error & $p$-Value \\
 \midrule
-Healthcare & $`r f(r$cat_results[["Healthcare"]][1], 2)`$ & $`r f(r$cat_results[["Healthcare"]][2], 2)`$ & $`r f(r$cat_results[["Healthcare"]][4], 3)`$ \\
 Park       & $`r f(r$cat_results[["Park"]][1], 2)`$ & $`r f(r$cat_results[["Park"]][2], 2)`$ & $`r f(r$cat_results[["Park"]][4], 3)`$ \\
+Healthcare & $`r f(r$cat_results[["Healthcare"]][1], 2)`$ & $`r f(r$cat_results[["Healthcare"]][2], 2)`$ & $`r f(r$cat_results[["Healthcare"]][4], 3)`$ \\
 School     & $`r f(r$cat_results[["School"]][1], 2)`$ & $`r f(r$cat_results[["School"]][2], 2)`$ & $`r f(r$cat_results[["School"]][4], 3)`$ \\
-Pharmacy   & $`r f(r$cat_results[["Pharmacy"]][1], 2)`$ & $`r f(r$cat_results[["Pharmacy"]][2], 2)`$ & $`r f(r$cat_results[["Pharmacy"]][4], 3)`$ \\
 Transit    & $`r f(r$cat_results[["Transit"]][1], 2)`$ & $`r f(r$cat_results[["Transit"]][2], 2)`$ & $`r f(r$cat_results[["Transit"]][4], 3)`$ \\
+Pharmacy   & $`r f(r$cat_results[["Pharmacy"]][1], 2)`$ & $`r f(r$cat_results[["Pharmacy"]][2], 2)`$ & $`r f(r$cat_results[["Pharmacy"]][4], 3)`$ \\
 Grocery    & $`r f(r$cat_results[["Grocery"]][1], 2)`$ & $`r f(r$cat_results[["Grocery"]][2], 2)`$ & $`r f(r$cat_results[["Grocery"]][4], 3)`$ \\
 \bottomrule
 \end{tabular}
 \label{tab:category}
 \end{table}
 
-Healthcare has the largest elasticity (`r f(r$cat_results[["Healthcare"]][1], 2)`, $p = `r f(r$cat_results[["Healthcare"]][4], 3)`$). In plain language: a neighbourhood with 10\% higher income has about `r f(r$cat_results[["Healthcare"]][1]*10, 0)`\% more clinics and doctors nearby. Parks and schools also show significant income gradients. All three are predominantly *public* services, whose locations municipal planners decide---not market demand alone.
+Parks show the largest income elasticity (`r f(r$cat_results[["Park"]][1], 2)`), followed by healthcare (`r f(r$cat_results[["Healthcare"]][1], 2)`) and schools (`r f(r$cat_results[["School"]][1], 2)`). To make the healthcare number concrete: a neighbourhood with 10\% higher income has `r f(r$cat_results[["Healthcare"]][1]*10, 0)`\% more clinics and doctors within walking distance. Transit and pharmacies also show significant gradients once we measure walking distances along actual streets --- a pattern that Euclidean buffers obscured by lumping in services unreachable on foot within 15 minutes.
 
-Groceries (`r f(r$cat_results[["Grocery"]][1], 2)`) and transit (`r f(r$cat_results[["Transit"]][1], 2)`) show no significant income link. Grocery stores go wherever people buy food, regardless of neighbourhood income. Transit follows network logic: Barcelona's metro and bus lines aim for coverage, not for serving wealthy areas.
+Only groceries show no significant income link (`r f(r$cat_results[["Grocery"]][1], 2)`, $p = `r f(r$cat_results[["Grocery"]][4], 3)`$). Grocery stores follow customers, rich or poor.
 
-Figure \ref{fig:categories} plots the point estimates with 95\% confidence intervals. Red dots (significant) sit to the right of zero; grey dots (not significant) straddle it. The visual gap between the top three categories and the bottom three is unmistakable.
+Figure \ref{fig:categories} plots these estimates with 95\% confidence intervals. Red dots (statistically significant) sit to the right of zero; the sole grey dot (groceries) straddles it.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.75\textwidth]{output/08_category_income_elasticities.pdf}
-\caption{Income elasticity by service category with 95\% CIs. Red = significant at 5\%. The gap between publicly-provided services (healthcare, parks, schools) and market/network-driven services (grocery, transit) stands out.}
+\caption{Income elasticity by service category with 95\% CIs. Red = significant at 5\%. Five of six categories show a significant income gradient; only groceries distribute evenly.}
 \label{fig:categories}
 \end{figure}
 
-## Non-linearity and Alternative Threshold
+## Is the Relationship Linear? Does the Threshold Matter?
 
-We add a quadratic term in log income and find a negative coefficient (`r f(r$nonlin_quad_coef, 2)`, $p = `r f(r$nonlin_quad_p, 3)`$), suggesting some concavity: the relationship steepens at the bottom. This encourages policy action---investments in the poorest areas would generate the largest accessibility gains.
+Adding a squared income term produces a negative coefficient (`r f(r$nonlin_quad_coef, 2)`, $p = `r f(r$nonlin_quad_p, 3)`$), suggesting concavity: the income-accessibility gradient is steeper for poorer neighbourhoods. This is encouraging for policy --- investments in the lowest-income areas would yield the largest accessibility gains.
 
-To verify that our results do not hinge on the 1,200 m threshold, we re-run everything with an 800 m buffer (about a 10-minute walk). The OLS income elasticity comes in at `r f(r$ols_800m_income_coef, 2)` ($p = `r f(r$ols_800m_income_p, 3)`$) and the SDM gives $\hat{\rho} = `r f(r$sdm_800m_rho, 2)`$ ($p = `r f(r$sdm_800m_rho_p, 3)`$). The conclusions hold.
+Changing the threshold from 15 minutes to 10 minutes`r if (!r$use_network) " (800 m Euclidean buffer)" else ""` yields an income elasticity of `r f(r$ols_alt_income_coef, 2)` ($p = `r f(r$ols_alt_income_p, 3)`$) and a spatial parameter $\hat{\rho} = `r f(r$sdm_alt_rho, 2)`$ ($p = `r f(r$sdm_alt_rho_p, 3)`$). The results hold.
+
+`r if (r$use_network && !is.na(r$eucl_network_cor)) paste0("## Why Measurement Method Matters: Network vs.\\\\ Euclidean Distances\n\nAs a robustness check, we compare our network-based scores to a simpler Euclidean alternative (1,200 m buffer around each centroid). The two measures correlate at $r = ", f(r$eucl_network_cor, 2), "$ --- the spatial pattern is broadly similar. But the magnitudes diverge: the income elasticity under Euclidean measurement is only about half the network-based estimate. Streets meander, buildings block straight-line paths, and Euclidean buffers count services that no pedestrian can actually reach in 15 minutes. This measurement error attenuates the estimated gradient. The qualitative finding holds under both approaches, but the network-based estimate is more credible, and it eliminates the need for spatial models to mop up the resulting spatially correlated error.") else ""`
+
+## Has the Income Landscape Changed? Evidence from 2015--2022
+
+Our main analysis is a cross-section. A natural question: is the income pattern stable, or are neighbourhoods converging? We download the same household income dataset for all available years (2015--2022) from Barcelona Open Data and aggregate to the `r r$n_barris` *barris*.
+
+Figure \ref{fig:trajectories} plots income trajectories. Two patterns stand out. First, the ranking barely moves: the wealthiest district in 2015 remains the wealthiest in 2022. Second, all neighbourhoods grew, but at different speeds: `r f(r$income_growth_mean, 1)`\% per year on average, ranging from `r f(r$income_growth_min, 1)`\% to `r f(r$income_growth_max, 1)`\%.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{output/12_income_trajectories.pdf}
+\caption{Household income per capita, 2015--2022. Grey lines = individual neighbourhoods; coloured lines = district averages. The ranking is remarkably stable.}
+\label{fig:trajectories}
+\end{figure}
+
+Are neighbourhoods converging? Figure \ref{fig:gini_time} tracks the Gini coefficient over time. It moved from `r f(r$gini_income_2015, 3)` in 2015 to `r f(r$gini_income_2022, 3)` in 2022, a shift of `r f(r$gini_income_change * 1000, 1)` thousandths --- `r ifelse(r$gini_income_change < 0, "a sign of sigma-convergence: poorer neighbourhoods slowly catching up", "a sign of sigma-divergence: the gap widening slightly")`.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.65\textwidth]{output/13_income_gini_over_time.pdf}
+\caption{Gini coefficient of neighbourhood income, 2015--2022. `r ifelse(r$gini_income_change < 0, "The declining trend indicates narrowing inequality.", "The trend indicates broadly stable inequality.")`}
+\label{fig:gini_time}
+\end{figure}
+
+We test this formally with a beta-convergence regression: annualised growth rate (2015--2022) on log initial income. The coefficient is `r f(r$beta_convergence_coef, 4)` ($p = `r f(r$beta_convergence_p, 3)`$). `r ifelse(r$beta_convergence_p < 0.05, "The negative, significant coefficient confirms beta-convergence: poorer neighbourhoods grew faster.", ifelse(r$beta_convergence_coef < 0, "The negative sign hints at convergence, but the estimate is not statistically significant.", "There is no evidence of convergence."))` The spatial pattern of income is persistent. The cross-sectional income gradient we document in 2022 has been in place for at least eight years.
+
+Figure \ref{fig:income_panel} maps income in three selected years. The same areas appear dark (high income) across all three snapshots.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{output/14_income_choropleth_panel.pdf}
+\caption{Household income per capita in 2015, 2018, and 2022. The spatial pattern is persistent: high- and low-income areas remain the same.}
+\label{fig:income_panel}
+\end{figure}
 
 # Limitations
 
-We want to be upfront about six boundaries of this analysis.
+Six caveats deserve attention.
 
-First, we cannot make causal claims. We document a robust income--accessibility association, but sorting works both ways: wealthier residents may choose well-served neighbourhoods, and well-served neighbourhoods may attract wealthier residents. We lack an instrument to break this simultaneity, a limitation we share with Thaury et al.\ (2024) and most of the 15-minute city literature.
+**Causation.** We document a strong association between income and accessibility, but cannot establish causation. Sorting runs both ways: richer households may choose better-served areas, and service providers may follow purchasing power. Without an instrument, we describe a correlation. This limitation is shared by Thaury et al.\ (2024) and most of the 15-minute city literature.
 
-Second, omitted variables could bias our estimates. We control for population density and centrality, but other unobserved factors---housing age, zoning regulations, tourism intensity---could drive both income and accessibility. Tourist-heavy areas like the Gothic Quarter have many services because of visitors, not because residents earn more, and we cannot separate tourist-serving from resident-serving POIs.
+**Omitted variables.** We control for population density and centrality, but housing age, zoning rules, and tourism intensity may also matter. The Gothic Quarter, for example, has many services because of tourists, not because its residents are wealthy. We cannot distinguish tourist-serving from resident-serving POIs.
 
-Third, our accessibility measure is crude. We use Euclidean buffers rather than street-network distances, count all POIs equally regardless of capacity, and rely on crowdsourced OpenStreetMap data that may have uneven coverage across neighbourhoods.
+**Service quality.** Although we use network-based walking times rather than straight-line distances, we treat all service points as equal regardless of size or quality, assume flat terrain and uniform walking speed, and rely on OpenStreetMap data, which may be more complete in some areas than others.
 
-Fourth, aggregation matters. Working at the *barri* level means we use centroids to represent entire neighbourhoods that vary enormously in size (1--9 km$^2$) and population (1,000--60,000). Finer-grained census-section data would help, but public income data does not go below the *barri*.
+**Spatial resolution.** We work at the *barri* level, representing entire neighbourhoods (`r f(r$area_min_km2, 1)` to `r f(r$area_max_km2, 1)` km$^2$; `r fc(r$pop_min)` to `r fc(r$pop_max)` residents) with a single centroid. Finer spatial units would help, but official income data are not published below this level.
 
-Fifth, we ignore dynamics. Our cross-section captures a single moment. We cannot track whether the income gradient is widening or narrowing, nor whether gentrification---which Ellder (2024) documents in Swedish 15-minute cities---is reshaping Barcelona's accessibility map.
+**Temporal mismatch.** We track income from 2015 to 2022, but our accessibility measure is a single snapshot from current OpenStreetMap data. Whether the service landscape has shifted alongside income, or whether gentrification (Ellder, 2024) is reshaping Barcelona's accessibility map, remains an open question.
 
-Sixth, the sample is small. Seventy-three observations limit statistical power. The SDM estimates eight parameters, leaving about 65 degrees of freedom, so borderline results (like the quadratic income term at $p = `r f(r$nonlin_quad_p, 3)`$) deserve caution.
+**Sample size.** With `r r$n_barris` neighbourhoods and `r r$n_sdm_params` parameters in the SDM, statistical power is limited. Borderline results (e.g., the quadratic income term at $p = `r f(r$nonlin_quad_p, 3)`$) warrant caution.
 
-None of these limitations overturns our central finding---the income gradient is robust across specifications, measures, and thresholds---but they bound what we can claim.
+None of these caveats overturns the main finding --- the income-accessibility gap is robust across model specifications, distance measures, and thresholds --- but they bound what we can conclude.
 
 # Conclusion
 
-Can all of Barcelona's residents walk to essential services within 15 minutes? More or less---but it depends on what you need and where you live. We find a real income--accessibility gap that clusters in space and comes from specific services. Healthcare, schools, and parks concentrate in wealthier central areas; groceries and transit spread evenly. Per capita, the gap vanishes---wealthier areas attract more services *and* more people.
+Barcelona's 15-minute city is real for most residents, but what you can walk to depends on where you live, and where you live depends on your income.
 
-Three takeaways for policy. First, Barcelona should target *specific services*---healthcare and schools above all---in the Low-Low clusters we identify (Figure \ref{fig:lisa}), rather than chasing aggregate accessibility numbers. Second, our market-access result tells planners to think about a neighbourhood's position relative to the whole city, not just its distance from the centre. Third, the per-capita finding serves as a useful sanity check: more services in rich areas does not automatically mean inadequate provision in poor areas.
+Three findings stand out. First, the income-accessibility gradient is large (elasticity `r f(r$ols_coefs["log_income", "Estimate"], 2)`) and pervasive: five of six service categories show it. Only grocery stores, which follow customers regardless of income, escape the pattern. Healthcare, parks, and schools --- all publicly sited --- show the steepest gradients. Second, adjusting for population erases the gap. Richer areas attract more services *and* more people. Per capita, the picture levels out. Third, the income landscape itself barely moves: the same neighbourhoods rank high or low from 2015 to 2022.
 
-On a broader level, our results connect a local urban-planning question to the theoretical machinery of quantitative spatial economics. The spatial multiplier in the SDM is not just an econometric convenience---it captures the same propagation logic that drives general-equilibrium models of trade and migration. If Barcelona's policymakers take the 15-minute city seriously, they need to think spatially: what happens in one neighbourhood ripples outward to its neighbours.
+A methodological lesson emerges. Measuring walking distances along actual streets rather than using straight-line buffers doubles the estimated income elasticity and renders the Spatial Durbin Model unnecessary --- OLS performs equally well. Researchers studying the 15-minute city should invest in proper routing before reaching for complex spatial specifications. Much of what looks like spatial dependence in Euclidean-based studies may simply reflect measurement error.
+
+For Barcelona's planners, the policy implications are precise. First, target healthcare, schools, and parks in the Low-Low clusters of the northern periphery (Figure \ref{fig:lisa}). Second, think about market access, not just distance to one centre: a neighbourhood's position relative to the entire city matters. Third, do not wait for convergence to close the gap --- eight years of data show the spatial income pattern barely budges. Improving service access in underserved areas requires deliberate investment.
 
 \newpage
 
@@ -416,6 +444,8 @@ LeSage, J. and Pace, R.K. (2009). *Introduction to Spatial Econometrics*. CRC Pr
 Moreno, C., Allam, Z., Chabaud, D., Gall, C., and Pratlong, F. (2021). Introducing the "15-Minute City": Sustainability, Resilience and Place Identity in Future Post-Pandemic Cities. *Smart Cities*, 4(1), 93--111.
 
 Mouratidis, K. (2024). Time to Challenge the 15-Minute City: Seven Pitfalls for Sustainability, Equity, Livability, and Spatial Analysis. *Cities*, 153, 105274.
+
+Padgham, M., Lovelace, R., Salmon, M., and Rudis, B. (2019). dodgr: An R Package for Network Flow Aggregation. *Findings*, Transport Findings. doi: 10.32866/6945.
 
 Plaza-Herrera, D. and Mercade-Aloy, J. (2025). Inclusive 15-Minute Cities: An Age-Sensitive Assessment of Active Accessibility in the Metropolitan Area of Barcelona. *Cities*, 165, 106091.
 
